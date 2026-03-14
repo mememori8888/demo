@@ -13,28 +13,6 @@ let fileCache = {
 
 // プリセット設定
 const PRESETS = {
-    facility_heatmap: {
-        'dental_batch': {
-            name: '🦷 歯科バッチ実行（2000件）',
-            description: '2000住所を処理（約30分）',
-            params: {
-                heatmap_facility_file: 'results/dental_heatmap_address.csv',
-                heatmap_output_file: 'results/dental.csv',
-                heatmap_start_line: '1',
-                heatmap_process_count: '2000'
-            }
-        },
-        'dental_test': {
-            name: '🧪 テスト実行（10件）',
-            description: '10住所を処理して動作確認（約5分）',
-            params: {
-                heatmap_facility_file: 'results/dental_heatmap_address.csv',
-                heatmap_output_file: 'results/dental.csv',
-                heatmap_start_line: '1',
-                heatmap_process_count: '10'
-            }
-        }
-    },
     facility: {
         'dental_full': {
             name: '🦷 歯科医院・全国取得',
@@ -101,15 +79,6 @@ const PRESETS = {
                 auto_batch_size: '10000',
                 auto_batch_max_parallel: '2',
                 auto_batch_workers: '10'
-            }
-        }
-    },
-    generate_heatmap: {
-        'dental': {
-            name: '🦷 歯科ヒートマップ生成',
-            description: '歯科施設データからヒートマップCSV作成（API呼び出しなし）',
-            params: {
-                generate_heatmap_facility_file: 'results/dental.csv'
             }
         }
     }
@@ -214,9 +183,6 @@ async function loadFileOptions() {
         const excludeFiles = settingsCsvFiles.filter(f => f.includes('exclude'));
         populateDropdown('custom_exclude_gids_path', excludeFiles, 'settings');
         
-        // ヒートマップファイル (results/*heatmap*.csv)
-        const heatmapFiles = resultsCsvFiles.filter(f => f.includes('heatmap'));
-        
         // Reviews workflow用のドロップダウンを設定
         populateDropdown('custom_review_file', reviewFiles, 'results', true);
         
@@ -226,27 +192,8 @@ async function loadFileOptions() {
         
         // Facility workflow用のドロップダウンを設定
         populateDropdown('facility_custom_address_csv', settingsCsvFiles, 'settings', true);
-        // ヒートマップファイルも住所CSVとして選択できるようにする
-        heatmapFiles.forEach(filename => {
-            const option = document.createElement('option');
-            option.value = `results/${filename}`;
-            option.textContent = filename;
-            document.getElementById('facility_custom_address_csv').appendChild(option);
-        });
-
         populateDropdown('facility_custom_facility_file', facilityFiles, 'results', true);
         populateDropdown('facility_custom_exclude_gids_path', excludeFiles, 'settings', true);
-        
-        // Generate Heatmap workflow用のドロップダウンを設定
-        populateDropdown('generate_heatmap_facility_file', facilityFiles, 'results', true);
-
-        // Facility Heatmap workflow用のドロップダウンを設定
-        // 施設ファイル名(入力): heatmapを含まない施設ファイル = 施設情報取得と同じロジック
-        populateDropdown('heatmap_facility_file', facilityFiles, 'results', true);
-        
-        // 出力ファイル名: heatmapが含まれるファイルのみ表示
-        const heatmapOnlyFiles = resultsCsvFiles.filter(f => f.includes('heatmap'));
-        populateDropdown('heatmap_output_file', heatmapOnlyFiles, 'results', true);
         
         // Extract FID workflow用のドロップダウンを設定
         // すべてのresults/*.csvファイルを選択可能にする
@@ -370,22 +317,6 @@ function switchWorkflow() {
 function validateFormEnhanced() {
     const errors = [];
     
-    if (currentWorkflow === 'facility_heatmap') {
-        const startIndex = parseInt(document.getElementById('heatmap_start_index')?.value || '0');
-        const batchSize = parseInt(document.getElementById('heatmap_batch_size')?.value || '2000');
-        const maxWorkers = parseInt(document.getElementById('heatmap_max_workers')?.value || '8');
-        
-        if (startIndex < 0) errors.push('開始インデックスは0以上を指定してください');
-        if (batchSize < 1 || batchSize > 50000) errors.push('バッチサイズは1〜50000の範囲で指定してください');
-        if (maxWorkers < 1 || maxWorkers > 16) errors.push('並列数は1〜16の範囲で指定してください');
-        
-        // 推定時間を表示
-        const estimatedMinutes = Math.ceil(batchSize / (maxWorkers * 10));
-        if (estimatedMinutes > 300) {
-            errors.push(`⚠️ 推定時間: 約${estimatedMinutes}分 (5時間以上) - タイムアウトの可能性があります`);
-        }
-    }
-    
     if (currentWorkflow === 'reviews') {
         const startLine = parseInt(document.getElementById('start_line')?.value || '0');
         const processCount = parseInt(document.getElementById('process_count')?.value || '0');
@@ -502,55 +433,6 @@ function getFormData() {
             data.custom_settings = Object.keys(facilityCustomSettings).length > 0 ? facilityCustomSettings : null;
             break;
             
-        case 'generate_heatmap':
-            const heatmapFile = document.getElementById('generate_heatmap_facility_file').value;
-            const heatmapFileNew = document.getElementById('generate_heatmap_facility_file_new')?.value.trim();
-            
-            if (heatmapFile === '__NEW_FILE__' && heatmapFileNew) {
-                data.facility_file = heatmapFileNew.startsWith('results/') 
-                    ? heatmapFileNew 
-                    : `results/${heatmapFileNew}`;
-            } else if (heatmapFile && heatmapFile !== '__NEW_FILE__') {
-                data.facility_file = heatmapFile;
-            }
-            data.heatmap_only = true;
-            break;
-
-        case 'facility_heatmap':
-            // 入力ファイル（処理対象のheatmapファイル）
-            const fhFile = document.getElementById('heatmap_facility_file').value;
-            const fhFileNew = document.getElementById('heatmap_facility_file_new')?.value.trim();
-            
-            if (fhFile === '__NEW_FILE__' && fhFileNew) {
-                data.input_file = fhFileNew.startsWith('results/') 
-                    ? fhFileNew 
-                    : `results/${fhFileNew}`;
-            } else if (fhFile && fhFile !== '__NEW_FILE__') {
-                data.input_file = fhFile;
-            }
-            
-            // 出力ファイル（facility_file: settings.jsonの出力先）
-            const outputFile = document.getElementById('heatmap_output_file').value;
-            const outputFileNew = document.getElementById('heatmap_output_file_new')?.value.trim();
-            
-            if (outputFile === '__NEW_FILE__' && outputFileNew) {
-                data.facility_file = outputFileNew.startsWith('results/') 
-                    ? outputFileNew 
-                    : `results/${outputFileNew}`;
-            } else if (outputFile && outputFile !== '__NEW_FILE__') {
-                data.facility_file = outputFile;
-            }
-            
-            // バッチ処理パラメータ（Issue Opsと同じキー名を使用）
-            const heatmapStartLine = document.getElementById('heatmap_start_line')?.value.trim();
-            const heatmapProcessCount = document.getElementById('heatmap_process_count')?.value.trim();
-            if (heatmapStartLine) data.start_line = heatmapStartLine;  // 文字列のまま
-            if (heatmapProcessCount) data.process_count = heatmapProcessCount;  // 文字列のまま
-            
-            data.max_workers = 8; // 固定値
-            data.execution_mode = 'batch'; // 固定値
-            break;
-            
         case 'extract_fid':
             data.input_file = document.getElementById('extract_fid_input_file').value;
             data.output_choice = document.getElementById('extract_fid_output_choice').value;
@@ -591,24 +473,6 @@ function validateForm() {
         }
     }
     
-    if (currentWorkflow === 'facility_heatmap') {
-        const startLine = document.getElementById('heatmap_start_line').value;
-        const processCount = document.getElementById('heatmap_process_count').value;
-        
-        if (startLine && parseInt(startLine) < 1) {
-            alert('⚠️ 開始行は1以上を指定してください');
-            return false;
-        }
-        
-        if (processCount) {
-            const count = parseInt(processCount);
-            if (count < 1 || count > 10000) {
-                alert('⚠️ 処理件数は1〜10000の範囲で指定してください');
-                return false;
-            }
-        }
-    }
-    
     return true;
 }
 
@@ -618,8 +482,6 @@ function generateIssueBody(data) {
         'reviews': '/run-reviews',
         'reviews_auto_batch': '/run-reviews-auto-batch',
         'facility': '/run-facility',
-        'facility_heatmap': '/run-facility-heatmap',
-        'generate_heatmap': '/run-generate-heatmap',
         'extract_fid': '/run-extract-fid'
     };
     
@@ -700,22 +562,6 @@ function generateIssueBody(data) {
             }
             break;
             
-        case 'generate_heatmap':
-            body += `### 🗺️ ヒートマップ作成\n\n`;
-            body += `- **施設ファイル**: \`${data.facility_file}\`\n`;
-            body += `- **モード**: ヒートマップ用CSV作成のみ\n`;
-            break;
-
-        case 'facility_heatmap':
-            body += `### 🗺️ ヒートマップ施設取得\n\n`;
-            body += `- **入力ファイル**: \`${data.input_file || '設定ファイル参照'}\`\n`;
-            body += `- **出力ファイル**: \`${data.facility_file || '設定ファイル参照'}\`\n`;
-            if (data.start_line && data.process_count) {
-                body += `- **処理範囲**: ${data.start_line}行目から${data.process_count}件\n`;
-            }
-            body += `- **並列処理数**: ${data.max_workers}（固定）\n`;
-            break;
-            
         case 'extract_fid':
             body += `### 🔑 FID抽出\n\n`;
             body += `- **入力ファイル**: \`${data.input_file}\`\n`;
@@ -778,8 +624,6 @@ function openIssue() {
         'reviews': 'Reviews Job',
         'reviews_auto_batch': 'Reviews Auto-Batch Job',
         'facility': 'Facility Job',
-        'facility_heatmap': 'Facility Heatmap Job',
-        'generate_heatmap': 'Generate Heatmap Job',
         'extract_fid': 'Extract FID Job'
     };
     
@@ -883,15 +727,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     document.getElementById('facility_custom_exclude_gids_path')?.addEventListener('change', function() {
         toggleNewFileInput('facility_custom_exclude_gids_path', 'facility_custom_exclude_gids_path_new');
-    });
-    document.getElementById('generate_heatmap_facility_file')?.addEventListener('change', function() {
-        toggleNewFileInput('generate_heatmap_facility_file', 'generate_heatmap_facility_file_new');
-    });
-    document.getElementById('heatmap_facility_file')?.addEventListener('change', function() {
-        toggleNewFileInput('heatmap_facility_file', 'heatmap_facility_file_new');
-    });
-    document.getElementById('heatmap_output_file')?.addEventListener('change', function() {
-        toggleNewFileInput('heatmap_output_file', 'heatmap_output_file_new');
     });
     
     // ボタンのイベントリスナー

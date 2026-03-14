@@ -23,8 +23,6 @@
                     <option value="reviews">📝 レビュー取得 (Reviews)</option>
                     <option value="reviews_auto_batch">🚀 レビュー取得・自動分割 (Reviews Auto-Batch)</option>
                     <option value="facility">🏢 施設データ取得 (Facility)</option>
-                    <option value="facility_heatmap">🗺️ ヒートマップ施設取得 (Facility Heatmap)</option>
-                    <option value="generate_heatmap">🔥 ヒートマップ作成 (Generate Heatmap)</option>
                     <option value="extract_fid">🔑 FID抽出 (Extract FID)</option>
                 </select>
             </div>
@@ -33,21 +31,6 @@
             <div id="preset_container" style="display: none; margin-bottom: 20px;"></div>
             
             <form id="jobForm">
-                <!-- Generate Heatmap Workflow -->
-                <div id="form_generate_heatmap" class="workflow-form" style="display: none;">
-                    <h3>🔥 ヒートマップ作成設定</h3>
-                    <p class="section-description">取得済みの施設データからヒートマップ用CSVを作成します</p>
-                    
-                    <div class="form-group">
-                        <label for="generate_heatmap_facility_file">対象施設ファイル *</label>
-                        <select id="generate_heatmap_facility_file" required>
-                            <option value="">選択してください</option>
-                            <!-- GitHub APIから動的に読み込まれます -->
-                        </select>
-                        <small>分析対象の施設データCSV (results/*.csv)</small>
-                    </div>
-                </div>
-
                 <!-- Extract FID Workflow -->
                 <div id="form_extract_fid" class="workflow-form" style="display: none;">
                     <h3>🔑 FID抽出設定</h3>
@@ -283,58 +266,6 @@
                             <label for="facility_custom_exclude_gids_path_new">新しいファイル名を入力</label>
                             <input type="text" id="facility_custom_exclude_gids_path_new" placeholder="例: new_exclude.csv">
                             <small>拡張子 .csv を含めて入力してください</small>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Facility Heatmap Workflow -->
-                <div id="form_facility_heatmap" class="workflow-form" style="display: none;">
-                    <h3>🗺️ ヒートマップ施設取得設定</h3>
-                    
-                    <div class="form-group">
-                        <label for="heatmap_facility_file">施設ファイル名 *</label>
-                        <select id="heatmap_facility_file" required>
-                            <option value="">選択してください</option>
-                            <!-- GitHub APIから動的に読み込まれます -->
-                        </select>
-                        <small>ヒートマップ処理する施設データファイル (results/*.csv)</small>
-                    </div>
-                    
-                    <div class="form-group" id="heatmap_facility_file_new_container" style="display: none;">
-                        <label for="heatmap_facility_file_new">新しいファイル名を入力</label>
-                        <input type="text" id="heatmap_facility_file_new" placeholder="例: new_facility.csv">
-                        <small>拡張子 .csv を含めて入力してください</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="heatmap_output_file">出力ファイル名</label>
-                        <select id="heatmap_output_file">
-                            <option value="">（入力ファイル名に _heatmap を追加）</option>
-                            <!-- GitHub APIから動的に読み込まれます -->
-                        </select>
-                        <small>処理結果の保存先ファイル名 (results/*_heatmap*.csv)</small>
-                    </div>
-                    
-                    <div class="form-group" id="heatmap_output_file_new_container" style="display: none;">
-                        <label for="heatmap_output_file_new">新しい出力ファイル名を入力</label>
-                        <input type="text" id="heatmap_output_file_new" placeholder="例: custom_heatmap.csv">
-                        <small>拡張子 .csv を含めて入力してください</small>
-                    </div>
-
-                    <div class="form-section">
-                        <h3>🔢 バッチ処理設定（オプション）</h3>
-                        <p class="section-description">並列処理や分割処理を行う場合に指定してください</p>
-                        
-                        <div class="form-group">
-                            <label for="heatmap_start_line">開始行</label>
-                            <input type="number" id="heatmap_start_line" min="1" placeholder="例: 1（空欄で最初から）">
-                            <small>処理を開始する行番号（1始まり）</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="heatmap_process_count">処理件数</label>
-                            <input type="number" id="heatmap_process_count" min="1" max="10000" placeholder="例: 1000（空欄で全件処理）">
-                            <small>処理する施設の件数（最大10,000件）</small>
                         </div>
                     </div>
                 </div>
