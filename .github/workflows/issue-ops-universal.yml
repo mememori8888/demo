@@ -13,8 +13,6 @@ jobs:
       (github.event_name == 'issues' && (
         contains(github.event.issue.body, '/run-reviews') ||
         contains(github.event.issue.body, '/run-facility') ||
-        contains(github.event.issue.body, '/run-facility-heatmap') ||
-        contains(github.event.issue.body, '/run-generate-heatmap') ||
         contains(github.event.issue.body, '/run-extract-fid')
       )) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/承認'))
@@ -66,10 +64,6 @@ jobs:
           # ワークフロータイプを検出
           if echo "$ISSUE_BODY" | grep -q "/run-reviews"; then
             WORKFLOW="reviews"
-          elif echo "$ISSUE_BODY" | grep -q "/run-generate-heatmap"; then
-            WORKFLOW="generate_heatmap"
-          elif echo "$ISSUE_BODY" | grep -q "/run-facility-heatmap"; then
-            WORKFLOW="facility_heatmap"
           elif echo "$ISSUE_BODY" | grep -q "/run-facility"; then
             WORKFLOW="facility"
           elif echo "$ISSUE_BODY" | grep -q "/run-extract-fid"; then
@@ -146,15 +140,6 @@ jobs:
                   else:
                       details = f"Address file not found: {csv_path}"
 
-              elif workflow == "generate_heatmap":
-                  requests = 0
-                  details = "Local processing only (No API cost)"
-
-              elif workflow == "facility_heatmap":
-                  batch = params.get("batch_size", "2000")
-                  requests = int(batch)
-                  details = f"Batch size {batch}"
-
           except Exception as e:
               details = f"Error: {str(e)}"
 
@@ -179,8 +164,6 @@ jobs:
             const workflowNames = {
               'reviews': '📝 レビュー取得',
               'facility': '🏢 施設データ取得',
-              'facility_heatmap': '🗺️ ヒートマップ施設取得',
-              'generate_heatmap': '🗺️ ヒートマップ作成',
               'extract_fid': '🔑 FID抽出'
             };
             
@@ -221,8 +204,6 @@ jobs:
             const workflowNames = {
               'reviews': '📝 レビュー取得',
               'facility': '🏢 施設データ取得',
-              'facility_heatmap': '🗺️ ヒートマップ施設取得',
-              'generate_heatmap': '🗺️ ヒートマップ作成',
               'extract_fid': '🔑 FID抽出'
             };
             
@@ -318,130 +299,6 @@ jobs:
           git pull --rebase origin main
           git push || true
 
-  run-facility-heatmap:
-    needs: parse-and-route
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'facility_heatmap'
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: Apply custom settings
-        id: settings
-        env:
-          PARAMS: ${{ needs.parse-and-route.outputs.params }}
-        run: |
-          echo "Extracting parameters..."
-          export CONFIG_FILE="settings/settings.json"
-          export CUSTOM_SETTINGS=$(echo "$PARAMS" | jq -c '.custom_settings // null')
-          
-          echo "CONFIG_FILE: $CONFIG_FILE"
-          echo "CUSTOM_SETTINGS: $CUSTOM_SETTINGS"
-          
-          python apply_custom_settings.py
-
-      - name: Run facility heatmap scraper
-        env:
-          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
-          CONFIG_FILE: ${{ steps.settings.outputs.config_file }}
-        run: |
-          echo "Using CONFIG_FILE: $CONFIG_FILE"
-          PARAMS='${{ needs.parse-and-route.outputs.params }}'
-          
-          MODE=$(echo "$PARAMS" | jq -r '.execution_mode // "batch"')
-          START=$(echo "$PARAMS" | jq -r '.start_line // "0"')
-          BATCH=$(echo "$PARAMS" | jq -r '.process_count // "2000"')
-          WORKERS=$(echo "$PARAMS" | jq -r '.max_workers // "8"')
-          INPUT_FILE=$(echo "$PARAMS" | jq -r '.input_file // ""')
-          OUTPUT_FILE=$(echo "$PARAMS" | jq -r '.facility_file // ""')
-          
-          # 環境変数でパラメータを渡す
-          export MAX_WORKERS=$WORKERS
-          export IO_MULTIPLIER=3
-          export START_INDEX=$START
-          export BATCH_SIZE=$BATCH
-          
-          # HEAT_MAP環境変数に入力ファイル（ヒートマップCSV）を設定
-          if [ -n "$INPUT_FILE" ]; then
-            export HEAT_MAP="$INPUT_FILE"
-            echo "HEAT_MAP環境変数に設定: $HEAT_MAP"
-          fi
-          
-          # FACILITY_FILE環境変数に出力ファイルを設定
-          if [ -n "$OUTPUT_FILE" ]; then
-            export FACILITY_FILE="$OUTPUT_FILE"
-            echo "FACILITY_FILE環境変数に設定: $FACILITY_FILE"
-          fi
-          
-          if [ "$MODE" == "total-count" ]; then
-            python facility_BrightData_heatmap.py --total-count
-          else
-            python facility_BrightData_heatmap.py
-          fi
-      
-      - name: Commit results
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add results/ settings/settings.json
-          git diff --staged --quiet || git commit -m "Update facility heatmap data and settings"
-          git pull --rebase origin main
-          git push || true
-
-  run-generate-heatmap:
-    needs: parse-and-route
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'generate_heatmap'
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: Generate Heatmap
-        env:
-          PARAMS: ${{ needs.parse-and-route.outputs.params }}
-        run: |
-          echo "Extracting parameters..."
-          FACILITY_FILE=$(echo "$PARAMS" | jq -r '.facility_file')
-          
-          echo "Running search_optimizer.py..."
-          python search_optimizer.py --heatmap-only --facility-file "$FACILITY_FILE"
-      
-      - name: Update file list
-        run: |
-          python update_file_list.py
-
-      - name: Commit results
-        if: always()
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add results/ docs/webapp/files.json
-          git diff --staged --quiet || git commit -m "Generate heatmap data from $FACILITY_FILE"
-          git pull --rebase origin main
-          git push || true
-
   run-extract-fid:
     needs: [parse-and-route]
     if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'extract_fid'
@@ -458,7 +315,7 @@ jobs:
       workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '4' }}
 
   report-completion:
-    needs: [parse-and-route, run-reviews, run-facility, run-facility-heatmap, run-generate-heatmap, run-extract-fid]
+    needs: [parse-and-route, run-reviews, run-facility, run-extract-fid]
     runs-on: ubuntu-latest
     if: always() && needs.parse-and-route.outputs.should_run == 'true'
     
@@ -476,8 +333,6 @@ jobs:
             const jobs = {
               'reviews': '${{ needs.run-reviews.result }}',
               'facility': '${{ needs.run-facility.result }}',
-              'facility_heatmap': '${{ needs.run-facility-heatmap.result }}',
-              'generate_heatmap': '${{ needs.run-generate-heatmap.result }}',
               'extract_fid': '${{ needs.run-extract-fid.result }}'
             };
             
@@ -545,51 +400,6 @@ jobs:
                     : `results/${fidInputFile}`;
                   const fidInputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
                   files.push(`- 🔑 **FID入力ファイル**: [${fullPath}](${fidInputUrl})`);
-                }
-              } else if (workflow === 'facility_heatmap') {
-                // 施設情報取得（ヒートマップ）の場合
-                const heatmapInputFile = params.heatmap_facility_file;
-                if (heatmapInputFile) {
-                  const fullPath = heatmapInputFile.startsWith('results/') 
-                    ? heatmapInputFile 
-                    : `results/${heatmapInputFile}`;
-                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 🗺️ **ヒートマップ入力ファイル**: [${fullPath}](${inputUrl})`);
-                }
-                
-                const heatmapOutputFile = params.heatmap_output_file || config.facility_file;
-                if (heatmapOutputFile) {
-                  const fullPath = heatmapOutputFile.startsWith('results/') 
-                    ? heatmapOutputFile 
-                    : `results/${heatmapOutputFile}`;
-                  const outputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 📍 **施設ファイル**: [${fullPath}](${outputUrl})`);
-                  
-                  // FIDファイル（施設ファイル名から自動生成）
-                  const facilityName = path.basename(fullPath, '.csv');
-                  const fidFile = `results/${facilityName}_fid.csv`;
-                  const fidUrl = `${context.payload.repository.html_url}/blob/main/${fidFile}`;
-                  files.push(`- 🔑 **FIDファイル**: [${fidFile}](${fidUrl})`);
-                }
-              } else if (workflow === 'generate_heatmap') {
-                // ヒートマップ生成の場合
-                const facilityFile = params.generate_heatmap_facility_file || config.facility_file;
-                const heatmapOutputFile = params.generate_heatmap_output_file || config.heatmap_address_file;
-                
-                if (facilityFile) {
-                  const fullPath = facilityFile.startsWith('results/') 
-                    ? facilityFile 
-                    : `results/${facilityFile}`;
-                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 📍 **入力施設ファイル**: [${fullPath}](${inputUrl})`);
-                }
-                
-                if (heatmapOutputFile) {
-                  const fullPath = heatmapOutputFile.startsWith('results/') 
-                    ? heatmapOutputFile 
-                    : `results/${heatmapOutputFile}`;
-                  const outputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 🗺️ **ヒートマップファイル**: [${fullPath}](${outputUrl})`);
                 }
               } else if (workflow === 'extract_fid') {
                 // FID抽出の場合
