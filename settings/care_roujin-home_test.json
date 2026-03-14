@@ -1,0 +1,17 @@
+[
+  {
+    "task_name": "search_roujin-home_test",
+    "zone_name": "serp_api1",
+    "query": "老人ホーム -不動産 -求人 -紹介センター -デイサービス -訪問 -居宅 -グループホーム -サービス付き高齢者向け住宅",
+    "includedType": "",
+    "address_csv_path": "settings/address_test.csv",
+    "facility_file": "results/care_roujin-home_test.csv",
+    "review_file": "results/care_roujin-home_test_review.csv",
+    "update_facility_path": "add_care_roujin-home_test.csv",
+    "update_review_path": "add_care_roujin-home_test_review.csv",
+    "exclude_gids_path": "settings/exclude_gids.csv",
+    "duplicate_analysis_path": "duplicate_analysis_roujin-home_test.csv",
+    "heat_map": "care_roujin-home_test_heatmap.csv",
+    "fid_file": "results/fid_care_roujin-home_test.csv"
+  }
+]

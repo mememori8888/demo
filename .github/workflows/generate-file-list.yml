@@ -1,0 +1,70 @@
+name: UIに反映するファイルリスト作成　実行する必要なし
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'settings/**'
+      - 'results/**'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate file list JSON
+        run: |
+          echo "{" > docs/webapp/files.json
+          echo '  "settings": [' >> docs/webapp/files.json
+          
+          first=true
+          for file in settings/*.csv; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              if [ "$first" = true ]; then
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+                first=false
+              else
+                echo "," >> docs/webapp/files.json
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+              fi
+            fi
+          done
+          
+          echo "" >> docs/webapp/files.json
+          echo '  ],' >> docs/webapp/files.json
+          echo '  "results": [' >> docs/webapp/files.json
+          
+          first=true
+          for file in results/*.csv; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              if [ "$first" = true ]; then
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+                first=false
+              else
+                echo "," >> docs/webapp/files.json
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+              fi
+            fi
+          done
+          
+          echo "" >> docs/webapp/files.json
+          echo '  ]' >> docs/webapp/files.json
+          echo "}" >> docs/webapp/files.json
+          
+          cat docs/webapp/files.json
+      
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/webapp/files.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: Update file list [skip ci]"
+            git push
+          fi

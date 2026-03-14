@@ -1,0 +1,10 @@
+{
+  "fid_file": "results/add_data_marriage_2025-12-19.csv",
+  "review_file": "results/marriage_reviews.csv",
+  "zone_name": "serp_api_unlocker1",
+  "max_reviews_per_facility": 3,
+  "batch_size": 50,
+  "max_workers": 10,
+  "review_api_zone": "google_maps",
+  "description": "結婚相談所レビュー取得設定（標準構成：3ページ/施設）"
+}

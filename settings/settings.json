@@ -1,0 +1,18 @@
+[
+  {
+    "task_name": "search",
+    "zone_name": "serp_api1",
+    "query": "歯科医院",
+    "includedType": "",
+    "address_csv_path": "settings/address_wordpress_only.csv",
+    "facility_file": "results/dental.csv",
+    "review_file": "results/dental_review.csv",
+    "update_facility_path": "add_data.csv",
+    "update_review_path": "add_review.csv",
+    "exclude_gids_path": "settings/exclude_gids.csv",
+    "duplicate_analysis_path": "duplicate_analysis.csv",
+    "heat_map": "wordpress_only_heatmap_pref_firstnum_optimized.csv",
+    "fid_file": "results/fid_test.csv"
+  }
+ 
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "task_name": "search_group-home",
+    "zone_name": "serp_api1",
+    "query": "グループホーム -不動産 -求人 -紹介センター -デイサービス -訪問 -居宅 サービス付き高齢者向け住宅 -老人ホーム",
+    "includedType": "",
+    "address_csv_path": "settings/address.csv",
+    "facility_file": "results/care_group-home.csv",
+    "review_file": "results/care_group-home_review.csv",
+    "update_facility_path": "add_care_group-home.csv",
+    "update_review_path": "add_care_group-home_review.csv",
+    "exclude_gids_path": "settings/exclude_gids.csv",
+    "duplicate_analysis_path": "duplicate_analysis_group-home.csv",
+    "heat_map": "care_group-home_heatmap.csv",
+    "fid_file": "results/fid_care_group-home.csv"
+  }
+]

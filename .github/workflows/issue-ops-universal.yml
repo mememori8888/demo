@@ -1,0 +1,646 @@
+name: 実行不可
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  parse-and-route:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'issues' && (
+        contains(github.event.issue.body, '/run-reviews') ||
+        contains(github.event.issue.body, '/run-facility') ||
+        contains(github.event.issue.body, '/run-facility-heatmap') ||
+        contains(github.event.issue.body, '/run-generate-heatmap') ||
+        contains(github.event.issue.body, '/run-extract-fid')
+      )) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/承認'))
+    
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      workflow_type: ${{ steps.parse.outputs.workflow_type }}
+      params: ${{ steps.parse.outputs.params }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Check authorization
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_USER: ${{ github.event.comment.user.login }}
+          COMMENT_AUTHOR_ASSOC: ${{ github.event.comment.author_association }}
+        run: |
+          if [[ "$EVENT_NAME" == "issues" ]]; then
+            echo "should_run=preview" >> $GITHUB_OUTPUT
+            echo "✅ Issue created - preview mode"
+            exit 0
+          fi
+          
+          if [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            if [[ "$COMMENT_BODY" == *"/承認"* ]]; then
+              AUTHOR="$COMMENT_USER"
+              if [[ "$AUTHOR" == "mememori8888" ]] || [[ "$COMMENT_AUTHOR_ASSOC" == "OWNER" ]]; then
+                echo "should_run=true" >> $GITHUB_OUTPUT
+                echo "✅ Approved by: $AUTHOR"
+              else
+                echo "should_run=false" >> $GITHUB_OUTPUT
+                echo "❌ Unauthorized user: $AUTHOR"
+              fi
+            else
+              echo "should_run=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Parse issue body
+        id: parse
+        if: steps.check.outputs.should_run != 'false'
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          # ワークフロータイプを検出
+          if echo "$ISSUE_BODY" | grep -q "/run-reviews"; then
+            WORKFLOW="reviews"
+          elif echo "$ISSUE_BODY" | grep -q "/run-generate-heatmap"; then
+            WORKFLOW="generate_heatmap"
+          elif echo "$ISSUE_BODY" | grep -q "/run-facility-heatmap"; then
+            WORKFLOW="facility_heatmap"
+          elif echo "$ISSUE_BODY" | grep -q "/run-facility"; then
+            WORKFLOW="facility"
+          elif echo "$ISSUE_BODY" | grep -q "/run-extract-fid"; then
+            WORKFLOW="extract_fid"
+          fi
+          
+          echo "workflow_type=$WORKFLOW" >> $GITHUB_OUTPUT
+          echo "Detected workflow: $WORKFLOW"
+          
+          # JSONパラメータを抽出
+          JSON_BLOCK=$(echo "$ISSUE_BODY" | sed -n '/```json/,/```/p' | sed '1d;$d')
+          echo "params<<EOF" >> $GITHUB_OUTPUT
+          echo "$JSON_BLOCK" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Estimate Cost
+        id: estimate
+        if: steps.check.outputs.should_run == 'preview'
+        env:
+          WORKFLOW: ${{ steps.parse.outputs.workflow_type }}
+          PARAMS: ${{ steps.parse.outputs.params }}
+        run: |
+          python3 -c '
+          import os, json, sys
+
+          workflow = os.environ.get("WORKFLOW", "")
+          params_json = os.environ.get("PARAMS", "{}")
+          try:
+              params = json.loads(params_json)
+          except:
+              params = {}
+
+          requests = 0
+          details = "Calculation failed"
+
+          try:
+              if workflow == "reviews":
+                  count = params.get("process_count")
+                  if count and str(count).isdigit():
+                      n = int(count)
+                      requests = n * 5
+                      details = f"{n} facilities * 5 reqs"
+                  else:
+                      fid_file = params.get("fid_file", "results/fid.csv")
+                      if os.path.exists(fid_file):
+                          with open(fid_file, encoding="utf-8", errors="ignore") as f:
+                              n = sum(1 for _ in f) - 1
+                          requests = n * 5
+                          details = f"{n} facilities (file) * 5 reqs"
+                      else:
+                          details = "FID file not found"
+
+              elif workflow == "facility":
+                  custom = params.get("custom_settings", {})
+                  csv_path = custom.get("address_csv_path") if custom else None
+                  if not csv_path:
+                      if os.path.exists("settings/settings.json"):
+                          try:
+                              with open("settings/settings.json", encoding="utf-8") as f:
+                                  settings = json.load(f)
+                                  if isinstance(settings, list) and len(settings) > 0:
+                                      csv_path = settings[0].get("address_csv_path")
+                          except:
+                              pass
+                  
+                  if not csv_path:
+                      csv_path = "settings/address.csv"
+
+                  if os.path.exists(csv_path):
+                      with open(csv_path, encoding="utf-8", errors="ignore") as f:
+                          n = sum(1 for _ in f) - 1
+                      requests = n * 1
+                      details = f"{n} addresses * 1 req"
+                  else:
+                      details = f"Address file not found: {csv_path}"
+
+              elif workflow == "generate_heatmap":
+                  requests = 0
+                  details = "Local processing only (No API cost)"
+
+              elif workflow == "facility_heatmap":
+                  batch = params.get("batch_size", "2000")
+                  requests = int(batch)
+                  details = f"Batch size {batch}"
+
+          except Exception as e:
+              details = f"Error: {str(e)}"
+
+          cost = requests * 0.0015
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"requests={requests}\n")
+              f.write(f"cost={cost:.4f}\n")
+              f.write(f"details={details}\n")
+          '
+
+      - name: Add preview comment
+        if: steps.check.outputs.should_run == 'preview'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflow = '${{ steps.parse.outputs.workflow_type }}';
+            const requests = '${{ steps.estimate.outputs.requests }}';
+            const cost = '${{ steps.estimate.outputs.cost }}';
+            const details = '${{ steps.estimate.outputs.details }}';
+            
+            const workflowNames = {
+              'reviews': '📝 レビュー取得',
+              'facility': '🏢 施設データ取得',
+              'facility_heatmap': '🗺️ ヒートマップ施設取得',
+              'generate_heatmap': '🗺️ ヒートマップ作成',
+              'extract_fid': '🔑 FID抽出'
+            };
+            
+            const body = [
+              '## 🔍 ジョブリクエスト受付',
+              '',
+              `**ワークフロー**: ${workflowNames[workflow] || workflow}`,
+              '',
+              '### 💰 概算コスト見積もり',
+              `- **予想リクエスト数**: ${requests} req`,
+              `- **予想コスト**: $${cost} (レート: $1.50/1k req)`,
+              `- **内訳**: ${details}`,
+              '',
+              'ジョブの実行準備が整いました。',
+              '',
+              '---',
+              '',
+              '✅ **管理者の方**: 内容を確認後、\\`/承認\\` とコメントして実行を承認してください。',
+              '❌ キャンセルする場合は、このIssueをクローズしてください。'
+            ].join('\n');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Add approval comment
+        if: steps.check.outputs.should_run == 'true'
+        uses: actions/github-script@v7
+        env:
+          PARAMS_JSON: ${{ steps.parse.outputs.params }}
+        with:
+          script: |
+            const workflow = '${{ steps.parse.outputs.workflow_type }}';
+            const params = JSON.parse(process.env.PARAMS_JSON || '{}');
+            const workflowNames = {
+              'reviews': '📝 レビュー取得',
+              'facility': '🏢 施設データ取得',
+              'facility_heatmap': '🗺️ ヒートマップ施設取得',
+              'generate_heatmap': '🗺️ ヒートマップ作成',
+              'extract_fid': '🔑 FID抽出'
+            };
+            
+            let details = [];
+            if (params.task_name) details.push(`- **タスク名**: \`${params.task_name}\``);
+            
+            // review_fileの取得 (トップレベル or custom_settings内)
+            const reviewFile = params.review_file || (params.custom_settings && params.custom_settings.review_file);
+            if (reviewFile) details.push(`- **出力ファイル**: \`${reviewFile}\``);
+            
+            const body = [
+              `🚀 **${workflowNames[workflow] || workflow}** の実行を開始します。`,
+              '',
+              details.length > 0 ? '### ⚙️ 実行パラメータ' : '',
+              ...details,
+              '',
+              '完了までしばらくお待ちください...',
+              '',
+              `[Actions ログ](${context.payload.repository.html_url}/actions/runs/${context.runId})`
+            ].join('\n');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  run-reviews:
+    needs: parse-and-route
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews'
+    uses: ./.github/workflows/brightdata_reviews.yml
+    secrets: inherit
+    with:
+      config_file: ${{ fromJson(needs.parse-and-route.outputs.params).config_file }}
+      fid_file: ${{ fromJson(needs.parse-and-route.outputs.params).fid_file }}
+      task_name: ${{ fromJson(needs.parse-and-route.outputs.params).task_name }}
+      start_line: ${{ fromJson(needs.parse-and-route.outputs.params).start_line }}
+      process_count: ${{ fromJson(needs.parse-and-route.outputs.params).process_count }}
+      review_file: ${{ fromJson(needs.parse-and-route.outputs.params).review_file || fromJson(needs.parse-and-route.outputs.params).custom_settings.review_file }}
+      workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
+
+
+  run-facility:
+    needs: parse-and-route
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'facility'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Apply custom settings
+        id: settings
+        env:
+          PARAMS: ${{ needs.parse-and-route.outputs.params }}
+        run: |
+          echo "Extracting parameters..."
+          export CONFIG_FILE=$(echo "$PARAMS" | jq -r '.config_file // "settings/settings.json"')
+          export CUSTOM_SETTINGS=$(echo "$PARAMS" | jq -c '.custom_settings // null')
+          
+          echo "CONFIG_FILE: $CONFIG_FILE"
+          echo "CUSTOM_SETTINGS: $CUSTOM_SETTINGS"
+          
+          python apply_custom_settings.py
+      
+      - name: Run facility scraper
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          MAX_WORKERS: "10"
+          IO_MULTIPLIER: "3"
+          CONFIG_FILE: ${{ steps.settings.outputs.config_file }}
+        run: |
+          echo "Using CONFIG_FILE: $CONFIG_FILE"
+          python facility_BrightData_20.py
+      
+      - name: Commit results
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add results/ settings/settings.json
+          git diff --staged --quiet || git commit -m "Update facility data and settings"
+          git pull --rebase origin main
+          git push || true
+
+  run-facility-heatmap:
+    needs: parse-and-route
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'facility_heatmap'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Apply custom settings
+        id: settings
+        env:
+          PARAMS: ${{ needs.parse-and-route.outputs.params }}
+        run: |
+          echo "Extracting parameters..."
+          export CONFIG_FILE="settings/settings.json"
+          export CUSTOM_SETTINGS=$(echo "$PARAMS" | jq -c '.custom_settings // null')
+          
+          echo "CONFIG_FILE: $CONFIG_FILE"
+          echo "CUSTOM_SETTINGS: $CUSTOM_SETTINGS"
+          
+          python apply_custom_settings.py
+
+      - name: Run facility heatmap scraper
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          CONFIG_FILE: ${{ steps.settings.outputs.config_file }}
+        run: |
+          echo "Using CONFIG_FILE: $CONFIG_FILE"
+          PARAMS='${{ needs.parse-and-route.outputs.params }}'
+          
+          MODE=$(echo "$PARAMS" | jq -r '.execution_mode // "batch"')
+          START=$(echo "$PARAMS" | jq -r '.start_line // "0"')
+          BATCH=$(echo "$PARAMS" | jq -r '.process_count // "2000"')
+          WORKERS=$(echo "$PARAMS" | jq -r '.max_workers // "8"')
+          INPUT_FILE=$(echo "$PARAMS" | jq -r '.input_file // ""')
+          OUTPUT_FILE=$(echo "$PARAMS" | jq -r '.facility_file // ""')
+          
+          # 環境変数でパラメータを渡す
+          export MAX_WORKERS=$WORKERS
+          export IO_MULTIPLIER=3
+          export START_INDEX=$START
+          export BATCH_SIZE=$BATCH
+          
+          # HEAT_MAP環境変数に入力ファイル（ヒートマップCSV）を設定
+          if [ -n "$INPUT_FILE" ]; then
+            export HEAT_MAP="$INPUT_FILE"
+            echo "HEAT_MAP環境変数に設定: $HEAT_MAP"
+          fi
+          
+          # FACILITY_FILE環境変数に出力ファイルを設定
+          if [ -n "$OUTPUT_FILE" ]; then
+            export FACILITY_FILE="$OUTPUT_FILE"
+            echo "FACILITY_FILE環境変数に設定: $FACILITY_FILE"
+          fi
+          
+          if [ "$MODE" == "total-count" ]; then
+            python facility_BrightData_heatmap.py --total-count
+          else
+            python facility_BrightData_heatmap.py
+          fi
+      
+      - name: Commit results
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add results/ settings/settings.json
+          git diff --staged --quiet || git commit -m "Update facility heatmap data and settings"
+          git pull --rebase origin main
+          git push || true
+
+  run-generate-heatmap:
+    needs: parse-and-route
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'generate_heatmap'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Generate Heatmap
+        env:
+          PARAMS: ${{ needs.parse-and-route.outputs.params }}
+        run: |
+          echo "Extracting parameters..."
+          FACILITY_FILE=$(echo "$PARAMS" | jq -r '.facility_file')
+          
+          echo "Running search_optimizer.py..."
+          python search_optimizer.py --heatmap-only --facility-file "$FACILITY_FILE"
+      
+      - name: Update file list
+        run: |
+          python update_file_list.py
+
+      - name: Commit results
+        if: always()
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add results/ docs/webapp/files.json
+          git diff --staged --quiet || git commit -m "Generate heatmap data from $FACILITY_FILE"
+          git pull --rebase origin main
+          git push || true
+
+  run-extract-fid:
+    needs: [parse-and-route]
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'extract_fid'
+    uses: ./.github/workflows/extract-fid.yml
+    secrets: inherit
+    with:
+      input_file_choice: '✍️ ファイル名を直接入力'
+      input_file: ${{ fromJson(needs.parse-and-route.outputs.params).input_file }}
+      output_file_choice: ${{ fromJson(needs.parse-and-route.outputs.params).output_choice == 'new' && '📝 新規ファイル名を入力' || '📁 既存ファイルから選択' }}
+      output_file_name: ${{ fromJson(needs.parse-and-route.outputs.params).output_file || '' }}
+      output_file_existing: ${{ fromJson(needs.parse-and-route.outputs.params).output_existing || '' }}
+      delay: ${{ fromJson(needs.parse-and-route.outputs.params).delay || '2' }}
+      limit: ${{ fromJson(needs.parse-and-route.outputs.params).limit || '' }}
+      workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '4' }}
+
+  report-completion:
+    needs: [parse-and-route, run-reviews, run-facility, run-facility-heatmap, run-generate-heatmap, run-extract-fid]
+    runs-on: ubuntu-latest
+    if: always() && needs.parse-and-route.outputs.should_run == 'true'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Report result
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            const jobs = {
+              'reviews': '${{ needs.run-reviews.result }}',
+              'facility': '${{ needs.run-facility.result }}',
+              'facility_heatmap': '${{ needs.run-facility-heatmap.result }}',
+              'generate_heatmap': '${{ needs.run-generate-heatmap.result }}',
+              'extract_fid': '${{ needs.run-extract-fid.result }}'
+            };
+            
+            const workflow = '${{ needs.parse-and-route.outputs.workflow_type }}';
+            const result = jobs[workflow];
+            
+            const resultsUrl = `${context.payload.repository.html_url}/tree/main/results`;
+            const artifactUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}#artifacts`;
+            
+            // Issueから解析されたパラメータを取得
+            let params = {};
+            try {
+              const paramsJson = `${{ needs.parse-and-route.outputs.params }}`;
+              params = JSON.parse(paramsJson);
+            } catch (error) {
+              console.log('パラメータ解析エラー:', error.message);
+            }
+            
+            let body = '';
+            if (result === 'success') {
+              // settings.jsonから設定を読み込み（フォールバック用）
+              let config = {};
+              try {
+                const configData = fs.readFileSync('settings/settings.json', 'utf8');
+                config = JSON.parse(configData);
+              } catch (error) {
+                console.log('設定ファイル読み込みエラー:', error.message);
+              }
+              
+              // 出力ファイルのリストを作成（ワークフロータイプに応じて表示）
+              const files = [];
+              
+              if (workflow === 'facility') {
+                // 施設情報取得の場合
+                const facilityFile = params.custom_facility_file || config.facility_file;
+                if (facilityFile) {
+                  const fullPath = facilityFile.startsWith('results/') 
+                    ? facilityFile 
+                    : `results/${facilityFile}`;
+                  const fileUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 📍 **施設ファイル**: [${fullPath}](${fileUrl})`);
+                  
+                  // FIDファイル（施設ファイル名から自動生成）
+                  const facilityName = path.basename(fullPath, '.csv');
+                  const fidFile = `results/${facilityName}_fid.csv`;
+                  const fidUrl = `${context.payload.repository.html_url}/blob/main/${fidFile}`;
+                  files.push(`- 🔑 **FIDファイル**: [${fidFile}](${fidUrl})`);
+                }
+              } else if (workflow === 'reviews') {
+                // レビュー取得の場合
+                const reviewFile = params.custom_review_file || config.review_file;
+                if (reviewFile) {
+                  const fullPath = reviewFile.startsWith('results/') 
+                    ? reviewFile 
+                    : `results/${reviewFile}`;
+                  const reviewUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- ⭐ **レビューファイル**: [${fullPath}](${reviewUrl})`);
+                }
+                
+                // FID入力ファイル
+                const fidInputFile = params.fid_file;
+                if (fidInputFile) {
+                  const fullPath = fidInputFile.startsWith('results/') 
+                    ? fidInputFile 
+                    : `results/${fidInputFile}`;
+                  const fidInputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 🔑 **FID入力ファイル**: [${fullPath}](${fidInputUrl})`);
+                }
+              } else if (workflow === 'facility_heatmap') {
+                // 施設情報取得（ヒートマップ）の場合
+                const heatmapInputFile = params.heatmap_facility_file;
+                if (heatmapInputFile) {
+                  const fullPath = heatmapInputFile.startsWith('results/') 
+                    ? heatmapInputFile 
+                    : `results/${heatmapInputFile}`;
+                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 🗺️ **ヒートマップ入力ファイル**: [${fullPath}](${inputUrl})`);
+                }
+                
+                const heatmapOutputFile = params.heatmap_output_file || config.facility_file;
+                if (heatmapOutputFile) {
+                  const fullPath = heatmapOutputFile.startsWith('results/') 
+                    ? heatmapOutputFile 
+                    : `results/${heatmapOutputFile}`;
+                  const outputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 📍 **施設ファイル**: [${fullPath}](${outputUrl})`);
+                  
+                  // FIDファイル（施設ファイル名から自動生成）
+                  const facilityName = path.basename(fullPath, '.csv');
+                  const fidFile = `results/${facilityName}_fid.csv`;
+                  const fidUrl = `${context.payload.repository.html_url}/blob/main/${fidFile}`;
+                  files.push(`- 🔑 **FIDファイル**: [${fidFile}](${fidUrl})`);
+                }
+              } else if (workflow === 'generate_heatmap') {
+                // ヒートマップ生成の場合
+                const facilityFile = params.generate_heatmap_facility_file || config.facility_file;
+                const heatmapOutputFile = params.generate_heatmap_output_file || config.heatmap_address_file;
+                
+                if (facilityFile) {
+                  const fullPath = facilityFile.startsWith('results/') 
+                    ? facilityFile 
+                    : `results/${facilityFile}`;
+                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 📍 **入力施設ファイル**: [${fullPath}](${inputUrl})`);
+                }
+                
+                if (heatmapOutputFile) {
+                  const fullPath = heatmapOutputFile.startsWith('results/') 
+                    ? heatmapOutputFile 
+                    : `results/${heatmapOutputFile}`;
+                  const outputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 🗺️ **ヒートマップファイル**: [${fullPath}](${outputUrl})`);
+                }
+              } else if (workflow === 'extract_fid') {
+                // FID抽出の場合
+                const inputFile = params.input_file;
+                if (inputFile) {
+                  const fullPath = inputFile.startsWith('results/') 
+                    ? inputFile 
+                    : `results/${inputFile}`;
+                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 📍 **入力ファイル**: [${fullPath}](${inputUrl})`);
+                }
+                
+                let outputFile = '';
+                if (params.output_choice === 'new') {
+                  outputFile = params.output_file;
+                  if (!outputFile.endsWith('.csv')) outputFile += '.csv';
+                } else {
+                  outputFile = params.output_existing;
+                }
+                
+                if (outputFile) {
+                  const fullPath = outputFile.startsWith('results/') 
+                    ? outputFile 
+                    : `results/${outputFile}`;
+                  const outputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
+                  files.push(`- 🔑 **抽出FIDファイル**: [${fullPath}](${outputUrl})`);
+                }
+              }
+              
+              const fileList = files.length > 0 ? `\n\n### 📊 出力ファイル\n${files.join('\n')}` : '';
+              
+              body = `✅ **ジョブ完了**${fileList}\n\n` +
+                     `### 📦 ダウンロード\n` +
+                     `- [📁 resultsフォルダを見る](${resultsUrl})\n` +
+                     `- [📦 Artifactsをダウンロード](${artifactUrl})\n` +
+                     `- [📊 Actionsログを見る](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
+              
+              // Issueをクローズ
+              github.rest.issues.update({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed'
+              });
+            } else {
+              body = `❌ **ジョブ失敗**\n\nエラー詳細は [Actions](${context.payload.repository.html_url}/actions/runs/${context.runId}) を確認してください。`;
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

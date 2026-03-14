@@ -1,0 +1,341 @@
+name: BrightData_facility serp api
+
+on:
+  workflow_dispatch:  # 手動実行を許可
+    inputs:
+      config_file:
+        description: '設定ファイル (Configuration JSON file)'
+        required: true
+        type: choice
+        options:
+          - 'settings/settings.json'
+          - 'settings/care_group-home.json'
+          - 'settings/care_group-home_test.json'
+          - 'settings/care_roujin-home.json'
+          - 'settings/care_roujin-home_test.json'
+          - 'settings/care_sakouju.json'
+          - 'settings/care_sakouju_test.json'
+          - 'settings/marriage_reviews.json'
+          - 'settings/marriage_reviews_full.json'
+          - 'settings/marriage_reviews_test.json'
+        default: 'settings/care_roujin-home_test.json'
+      address_csv:
+        description: 'アドレスファイル (Address CSV file)'
+        required: false
+        type: choice
+        options:
+          - 'default'
+          - 'settings/address.csv'
+          - 'settings/address_test.csv'
+          - 'settings/address_wordpress_only.csv'
+          - 'settings/adress_degital_cho .csv'
+          - 'settings/exclude_gids.csv'
+          - 'settings/wordpress_address.csv'
+        default: 'default'
+      output_file:
+        description: '出力ファイル名（既存ファイル選択または新規ファイル名入力）
+
+          既存ファイル: add_data.csv, add_data_marriage_20151215.csv, add_data_marriage_2025-12-19.csv, add_review.csv, dental.csv, dental_heatmap_address.csv, dental_new.csv, dental_new_chubu.csv, dental_new_chugoku_shikoku_kyushu.csv, dental_new_hokkaido.csv ...他29件'
+        required: false
+        type: string
+        default: 'default'
+      max_requests:
+        description: 'Max requests per address (1=min, 3=standard, 5=max)'
+        required: false
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '5'
+          - '10'
+        default: '1'
+  workflow_call:      # 再利用可能にする
+
+jobs:
+  run-facility-scraper:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Validate configuration file
+        run: |
+          CONFIG_FILE="${{ github.event.inputs.config_file || 'settings/settings.json' }}"
+          ADDRESS_CSV="${{ github.event.inputs.address_csv || 'default' }}"
+          OUTPUT_FILE="${{ github.event.inputs.output_file || 'default' }}"
+          
+          echo "🔍 Checking configuration file: $CONFIG_FILE"
+          
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Error: Configuration file not found: $CONFIG_FILE"
+            echo ""
+            echo "Available configuration files in settings/:"
+            ls -1 settings/*.json 2>/dev/null || echo "No JSON files found"
+            exit 1
+          fi
+          
+          echo "✅ Configuration file exists"
+          echo "📄 File contents:"
+          cat "$CONFIG_FILE" | head -20
+          
+          # アドレスファイルまたは出力ファイルが指定されている場合
+          if [ "$ADDRESS_CSV" != "default" ] || [ "$OUTPUT_FILE" != "default" ]; then
+            echo ""
+            echo "📝 Custom parameters:"
+            [ "$ADDRESS_CSV" != "default" ] && echo "   📍 Address CSV: $ADDRESS_CSV"
+            [ "$OUTPUT_FILE" != "default" ] && echo "   📄 Output file: results/$OUTPUT_FILE"
+            echo ""
+            echo "✅ Custom parameters will override config file settings"
+          fi
+          
+      - name: Run facility scraper
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          MAX_WORKERS: 10
+          IO_MULTIPLIER: 3
+          CONFIG_FILE: ${{ github.event.inputs.config_file || 'settings/settings.json' }}
+          CUSTOM_ADDRESS_CSV: ${{ github.event.inputs.address_csv }}
+          CUSTOM_OUTPUT_FILE: ${{ github.event.inputs.output_file }}
+          MAX_REQUESTS: ${{ github.event.inputs.max_requests || '5' }}
+        timeout-minutes: 300
+        run: |
+          echo "=== Starting facility scraper ==="
+          echo "📁 Config file: $CONFIG_FILE"
+          echo "📍 Custom address CSV: ${CUSTOM_ADDRESS_CSV:-default from config}"
+          echo "📄 Custom output file: ${CUSTOM_OUTPUT_FILE:-default from config}"
+          echo "📜 Using script: facility_BrightData_20.py"
+          echo "🔢 Max requests per address: $MAX_REQUESTS"
+          echo "👷 Parallel workers: $MAX_WORKERS"
+          echo ""
+          python facility_BrightData_20.py
+          
+      - name: Upload results (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: facility-results-${{ github.run_number }}
+          path: results/
+          retention-days: 7
+          
+      - name: Update file list
+        if: always()
+        run: |
+          echo "🔄 Updating files.json and workflow options..."
+          python update_file_list.py
+          
+          echo ""
+          echo "📄 files.json content:"
+          cat docs/webapp/files.json | head -30
+
+      - name: Commit and push results
+        if: always()
+        run: |
+          set +e  # エラーで停止しない（常にartifactsは取得できるように）
+          
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 変更されたファイルを確認
+          echo "📝 Checking changed files..."
+          git status --short
+          echo ""
+          
+          # 無視されるファイル（logs/等）を表示
+          echo "🚫 Files that will be ignored by git:"
+          git status --ignored --short | grep "^!!" || echo "  (none)"
+          echo ""
+          
+          # 追跡外のファイル（新規ファイル）を追加
+          git add -A results/ docs/webapp/files.json .github/workflows/brightdata_facility.yml 2>/dev/null || true
+          
+          # settings.json は Issue Ops でのみ更新するため、除外
+          git reset settings/settings.json 2>/dev/null || true
+          
+          # 他の不要な変更も除外（念のため）
+          git reset logs/ 2>/dev/null || true
+          git reset __pycache__/ 2>/dev/null || true
+          git reset .pytest_cache/ 2>/dev/null || true
+          git reset update_urls_progress.json 2>/dev/null || true
+          
+          echo "📦 Files staged for commit:"
+          git diff --staged --stat || echo "  (no changes)"
+          echo ""
+          
+          # ステージングされた変更がある場合のみコミット
+          if git diff --staged --quiet; then
+            echo "ℹ️ No changes to commit"
+            exit 0
+          fi
+          
+          # コミット作成
+          git commit -m "Update facility data - $(date +'%Y-%m-%d %H:%M:%S')" || {
+            echo "❌ Commit failed"
+            exit 1
+          }
+          
+          # リトライ付きでpush（最大3回）
+          PUSH_SUCCESS=false
+          for i in {1..3}; do
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📤 Push attempt $i/3..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # リモートの最新情報を取得
+            git fetch origin main || {
+              echo "⚠️ Fetch failed, continuing anyway..."
+            }
+            
+            # ローカルとリモートの差分を確認
+            LOCAL=$(git rev-parse HEAD)
+            REMOTE=$(git rev-parse origin/main)
+            
+            if [ "$LOCAL" = "$REMOTE" ]; then
+              echo "✅ Already up to date with remote"
+            else
+              echo "🔄 Remote has changes, attempting to merge..."
+              
+              # rebaseを試みる（autostashで未ステージ変更も自動処理）
+              if git pull --rebase --autostash origin main; then
+                echo "✅ Rebase successful"
+              else
+                # rebaseが失敗したら中断してmergeを試す
+                echo "⚠️ Rebase failed, aborting and trying merge..."
+                git rebase --abort 2>/dev/null || true
+                
+                if git pull --no-rebase --no-edit origin main; then
+                  echo "✅ Merge successful"
+                else
+                  echo "❌ Merge also failed"
+                  # コンフリクトの可能性 - 状態をリセット
+                  git merge --abort 2>/dev/null || true
+                  
+                  if [ $i -eq 3 ]; then
+                    echo ""
+                    echo "💥 Cannot resolve conflicts automatically"
+                    echo "📦 Results are saved in Artifacts"
+                    exit 1
+                  fi
+                  
+                  echo "⏳ Waiting 10 seconds before retry..."
+                  sleep 10
+                  continue
+                fi
+              fi
+            fi
+            
+            # Push を試みる
+            if git push origin main; then
+              echo ""
+              echo "✅✅✅ Push succeeded! ✅✅✅"
+              echo ""
+              PUSH_SUCCESS=true
+              break
+            else
+              echo "❌ Push failed (attempt $i/3)"
+              
+              if [ $i -eq 3 ]; then
+                echo ""
+                echo "⚠️⚠️⚠️ Push failed after 3 attempts ⚠️⚠️⚠️"
+                echo "📦 Results are uploaded as artifacts"
+                echo "🔗 Download from: Actions → This run → Artifacts section"
+                echo ""
+              else
+                echo "⏳ Waiting 10 seconds before retry..."
+                sleep 10
+              fi
+            fi
+          done
+          
+          # Push が成功したかどうかで終了コードを設定（artifactsは常にアップロード）
+          if [ "$PUSH_SUCCESS" = "true" ]; then
+            exit 0
+          else
+            exit 1
+          fi
+      
+      - name: Post results to Issue
+        if: always() && github.event.issue.number
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            const issueNumber = context.issue.number;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}#artifacts`;
+            
+            // settings.jsonから設定を読み込み
+            let config = {};
+            try {
+              const configPath = process.env.CONFIG_FILE || 'settings/settings.json';
+              const configData = fs.readFileSync(configPath, 'utf8');
+              config = JSON.parse(configData)[0]; // 配列の最初の要素を取得
+            } catch (error) {
+              console.log('設定ファイル読み込みエラー:', error.message);
+            }
+            
+            // 出力ファイルのリストを作成
+            const files = [];
+            
+            // 施設ファイル
+            if (config.facility_file) {
+              const facilityFile = config.facility_file.startsWith('results/') 
+                ? config.facility_file 
+                : `results/${config.facility_file}`;
+              const fileUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/${facilityFile}`;
+              files.push(`- **📍 施設ファイル**: [${facilityFile}](${fileUrl})`);
+              
+              // FIDファイル（施設ファイル名から自動生成）
+              const facilityName = path.basename(facilityFile, '.csv');
+              const fidFile = `results/${facilityName}_fid.csv`;
+              const fidUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/${fidFile}`;
+              files.push(`- **🔑 FIDファイル**: [${fidFile}](${fidUrl})`);
+            }
+            
+            // レビューファイル
+            if (config.review_file) {
+              const reviewFile = config.review_file.startsWith('results/') 
+                ? config.review_file 
+                : `results/${config.review_file}`;
+              const reviewUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/${reviewFile}`;
+              files.push(`- **⭐ レビューファイル**: [${reviewFile}](${reviewUrl})`);
+            }
+            
+            // ヒートマップファイル
+            if (config.heatmap_address_file) {
+              const heatmapFile = config.heatmap_address_file.startsWith('results/') 
+                ? config.heatmap_address_file 
+                : `results/${config.heatmap_address_file}`;
+              const heatmapUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/${heatmapFile}`;
+              files.push(`- **🗺️ ヒートマップファイル**: [${heatmapFile}](${heatmapUrl})`);
+            }
+            
+            const fileList = files.length > 0 ? files.join('\n') : '- 出力ファイル情報を取得できませんでした';
+            
+            const comment = `## 🎉 施設情報取得が完了しました\n\n` +
+              `### 📊 出力ファイル\n` +
+              `${fileList}\n\n` +
+              `### 📦 ダウンロード\n` +
+              `- **Artifacts**: [すべての結果ファイルをダウンロード](${artifactUrl})\n` +
+              `- **実行ログ**: [詳細を見る](${runUrl})\n`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: comment
+            });

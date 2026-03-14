@@ -1,0 +1,301 @@
+name: BrightData_reviews serp api
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_file:
+        description: 'Config file to use'
+        required: true
+        type: choice
+        options:
+          - settings/settings.json
+          - settings/settings_dental.json
+          - settings/settings_marige.json
+        default: 'settings/settings.json'
+      fid_file:
+        description: 'FID file path (results/*.csv) - Leave empty to use config file setting'
+        required: false
+        type: string
+        default: ''
+      task_name:
+        description: 'Task name from settings.json (leave empty for all tasks)'
+        required: false
+        type: string
+      start_line:
+        description: 'Start line number (1-based, leave empty for beginning)'
+        required: false
+        type: string
+        default: ''
+      process_count:
+        description: 'Number of facilities to process (leave empty for all)'
+        required: false
+        type: string
+        default: ''
+      workers:
+        description: 'Parallel workers count (default: 10)'
+        required: false
+        type: string
+        default: '10'
+      review_file:
+        description: 'Review output file path (leave empty to use config)'
+        required: false
+        type: string
+        default: ''
+
+  workflow_call:
+    inputs:
+      config_file:
+        description: 'Config file to use'
+        required: true
+        type: string
+        default: 'settings/settings.json'
+      fid_file:
+        description: 'FID file path (results/*.csv)'
+        required: false
+        type: string
+        default: ''
+      task_name:
+        description: 'Task name from settings.json'
+        required: false
+        type: string
+      start_line:
+        description: 'Start line number'
+        required: false
+        type: string
+        default: ''
+      process_count:
+        description: 'Number of facilities to process'
+        required: false
+        type: string
+        default: ''
+      workers:
+        description: 'Parallel workers count'
+        required: false
+        type: string
+        default: '10'
+      review_file:
+        description: 'Review output file path'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  run-reviews-scraper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5時間タイムアウト（GitHub Actions制限）
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Validate FID file
+        if: inputs.fid_file != ''
+        run: |
+          echo "🔍 Validating FID file: ${{ inputs.fid_file }}"
+          if [ ! -f "${{ inputs.fid_file }}" ]; then
+            echo "❌ Error: FID file not found: ${{ inputs.fid_file }}"
+            echo "📂 Available files in results/:"
+            ls -1 results/*.csv 2>/dev/null || echo "  (no CSV files found)"
+            exit 1
+          fi
+          echo "✅ FID file exists: ${{ inputs.fid_file }}"
+          
+          # Check for FID column
+          echo "📋 Checking CSV structure..."
+          head -n 1 "${{ inputs.fid_file }}"
+          if head -n 1 "${{ inputs.fid_file }}" | grep -qE '施設FID|FID|fid'; then
+            echo "✅ FID column detected"
+          else
+            echo "⚠️  Warning: No FID column found in header, but script will attempt auto-detection"
+          fi
+      
+      - name: Post progress start
+        if: github.event.issue.number
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = context.issue.number;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const processCount = '${{ inputs.process_count }}' || '全件';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `## 🚀 レビュー取得を開始しました\n\n` +
+                    `📊 処理件数: ${processCount}\n` +
+                    `⏳ 推定時間: 約${processCount === '全件' ? '60-120' : Math.ceil(parseInt(processCount) / 100 * 10)}分\n\n` +
+                    `[実行ログを見る](${runUrl})`
+            });
+      
+      - name: Run reviews scraper
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MAX_WORKERS: ${{ inputs.workers }}
+        timeout-minutes: 270
+        run: |
+          echo "=== Starting parallel review scraper ==="
+          echo "🚀 Parallel workers: $MAX_WORKERS"
+          
+          # FID file の設定
+          if [ -n "${{ inputs.fid_file }}" ]; then
+            echo "📁 Using custom FID file: ${{ inputs.fid_file }}"
+            export FID_FILE_OVERRIDE="${{ inputs.fid_file }}"
+          else
+            echo "📁 Using default FID file from config"
+          fi
+          
+          # Review file の正規化
+          REVIEW_FILE="${{ inputs.review_file }}"
+          REVIEW_OPT=""
+          if [ -n "$REVIEW_FILE" ]; then
+            # 拡張子がなければ追加
+            if [[ "$REVIEW_FILE" != *.csv ]]; then
+              REVIEW_FILE="${REVIEW_FILE}.csv"
+              echo "📝 Added .csv extension: $REVIEW_FILE"
+            fi
+            REVIEW_OPT="--review-file $REVIEW_FILE"
+          fi
+          
+          python reviews_BrightData_50.py \
+            --config "${{ inputs.config_file }}" \
+            $REVIEW_OPT \
+            ${{ inputs.task_name && format('--task-name "{0}"', inputs.task_name) || '' }} \
+            ${{ inputs.start_line && format('--start-line {0}', inputs.start_line) || '' }} \
+            ${{ inputs.process_count && format('--process-count {0}', inputs.process_count) || '' }}
+          
+      - name: Upload results (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-results-${{ github.run_number }}
+          path: results/
+          retention-days: 7
+          
+      - name: Update file list
+        if: always()
+        run: |
+          echo "Updating files.json..."
+          echo "{" > docs/webapp/files.json
+          echo '  "settings": [' >> docs/webapp/files.json
+          
+          first=true
+          for file in settings/*.csv; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              if [ "$first" = true ]; then
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+                first=false
+              else
+                echo "," >> docs/webapp/files.json
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+              fi
+            fi
+          done
+          
+          echo "" >> docs/webapp/files.json
+          echo '  ],' >> docs/webapp/files.json
+          echo '  "results": [' >> docs/webapp/files.json
+          
+          first=true
+          for file in results/*.csv; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              if [ "$first" = true ]; then
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+                first=false
+              else
+                echo "," >> docs/webapp/files.json
+                echo -n "    \"$filename\"" >> docs/webapp/files.json
+              fi
+            fi
+          done
+          
+          echo "" >> docs/webapp/files.json
+          echo '  ]' >> docs/webapp/files.json
+          echo "}" >> docs/webapp/files.json
+          
+          echo "✅ files.json updated"
+
+      - name: Commit and push results
+        if: always()
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add results/ docs/webapp/files.json
+          # settings.json は Issue Ops でのみ更新するため、ここでは除外
+          git reset settings/settings.json 2>/dev/null || true
+          
+          # 変更がある場合のみコミット
+          if ! git diff --staged --quiet; then
+            git commit -m "Update review data - $(date +'%Y-%m-%d %H:%M:%S')"
+            
+            # リトライ付きでpush（最大3回）
+            for i in {1..3}; do
+              echo "Push attempt $i/3..."
+              
+              # リモートの変更を取得してマージ
+              git pull --rebase origin main || true
+              
+              if git push origin main; then
+                echo "✅ Push succeeded"
+                break
+              else
+                echo "❌ Push failed (attempt $i/3)"
+                if [ $i -eq 3 ]; then
+                  echo "⚠️ Push failed after 3 attempts, but results are uploaded as artifacts"
+                else
+                  echo "⏳ Waiting 5 seconds before retry..."
+                  sleep 5
+                fi
+              fi
+            done
+          else
+            echo "No changes to commit"
+          fi
+      
+      - name: Post results to Issue
+        if: always() && github.event.issue.number
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const issueNumber = context.issue.number;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}#artifacts`;
+            
+            // 結果ファイルのURL（GitHubリポジトリ内）
+            const reviewFile = '${{ inputs.review_file }}' || 'results/dental_review.csv';
+            const fileUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/${reviewFile}`;
+            
+            const comment = `## 🎉 レビュー取得処理が完了しました\n\n` +
+              `### 📊 結果\n` +
+              `- **出力ファイル**: [${reviewFile}](${fileUrl})\n` +
+              `- **Artifacts**: [ダウンロード](${artifactUrl})\n` +
+              `- **実行ログ**: [詳細を見る](${runUrl})\n\n` +
+              `### ⚙️ 実行パラメータ\n` +
+              `- Config: \`${{ inputs.config_file }}\`\n` +
+              `- FID File: \`${{ inputs.fid_file || '(default)' }}\`\n` +
+              `- Review File: \`${{ inputs.review_file || '(default from settings)' }}\`\n` +
+              `- Start Line: \`${{ inputs.start_line || 'all' }}\`\n` +
+              `- Process Count: \`${{ inputs.process_count || 'all' }}\`\n`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: comment
+            });

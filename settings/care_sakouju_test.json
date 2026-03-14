@@ -1,0 +1,17 @@
+[
+  {
+    "task_name": "search_sakouju_test",
+    "zone_name": "serp_api1",
+    "query": "サービス付き高齢者向け住宅 -不動産 -求人 -紹介センター -デイサービス -訪問 -居宅 -グループホーム -老人ホーム",
+    "includedType": "",
+    "address_csv_path": "settings/address_test.csv",
+    "facility_file": "results/care_sakouju_test.csv",
+    "review_file": "results/care_sakouju_test_review.csv",
+    "update_facility_path": "add_care_sakouju_test.csv",
+    "update_review_path": "add_care_sakouju_test_review.csv",
+    "exclude_gids_path": "settings/exclude_gids.csv",
+    "duplicate_analysis_path": "duplicate_analysis_sakouju_test.csv",
+    "heat_map": "care_sakouju_test_heatmap.csv",
+    "fid_file": "results/fid_care_sakouju_test.csv"
+  }
+]

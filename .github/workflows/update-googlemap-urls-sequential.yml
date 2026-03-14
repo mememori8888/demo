@@ -1,0 +1,193 @@
+name: Update GoogleMap URLs (Sequential 500-row batches)
+
+on:
+  workflow_dispatch:
+    inputs:
+      csv_file:
+        description: '更新するCSVファイルパス'
+        required: true
+        default: 'results/dental_new.csv'
+      workers:
+        description: '並列実行数（バッチ内の並列数: 5-7推奨）'
+        required: false
+        default: '7'
+      skip_if_empty:
+        description: 'この列が空またはhttpなしの場合スキップ'
+        required: false
+        default: 'web'
+      batch_size:
+        description: '1バッチあたりの行数'
+        required: false
+        default: '500'
+      wait_between_batches:
+        description: 'バッチ間の待機時間（秒）アクセス制限対策'
+        required: false
+        default: '60'
+      start_from_batch:
+        description: '開始バッチ番号（1から開始、途中再開用）'
+        required: false
+        default: '1'
+
+jobs:
+  sequential-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # GitHub Actions上限6時間（360分）より少し短く設定
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Pull latest CSV
+        run: |
+          git pull origin main
+          echo "✅ 最新のCSVを取得しました"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install selenium webdriver-manager
+      
+      - name: Sequential Batch Processing
+        id: sequential
+        run: |
+          # Git設定
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # CSVの総行数を取得
+          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
+          TOTAL_ROWS=$((TOTAL_ROWS - 1))  # ヘッダー除く
+          
+          BATCH_SIZE=${{ github.event.inputs.batch_size }}
+          WAIT_TIME=${{ github.event.inputs.wait_between_batches }}
+          START_BATCH=${{ github.event.inputs.start_from_batch }}
+          
+          TOTAL_BATCHES=$(( (TOTAL_ROWS + BATCH_SIZE - 1) / BATCH_SIZE ))
+          
+          echo "📊 処理概要:"
+          echo "  - 総行数: ${TOTAL_ROWS}"
+          echo "  - バッチサイズ: ${BATCH_SIZE}行"
+          echo "  - 総バッチ数: ${TOTAL_BATCHES}"
+          echo "  - バッチ間待機: ${WAIT_TIME}秒"
+          echo "  - 開始バッチ: ${START_BATCH}"
+          echo ""
+          
+          SUCCESS_COUNT=0
+          ERROR_COUNT=0
+          SKIP_COUNT=0
+          
+          # バッチループ
+          for ((BATCH=$START_BATCH; BATCH<=TOTAL_BATCHES; BATCH++)); do
+            START_ROW=$(( (BATCH - 1) * BATCH_SIZE + 1 ))
+            END_ROW=$(( BATCH * BATCH_SIZE ))
+            
+            if [ $END_ROW -gt $TOTAL_ROWS ]; then
+              END_ROW=$TOTAL_ROWS
+            fi
+            
+            echo "=========================================="
+            echo "🚀 バッチ ${BATCH}/${TOTAL_BATCHES} 開始"
+            echo "   範囲: 行${START_ROW}～${END_ROW}"
+            echo "=========================================="
+            
+            # スキップ列のオプションを構築
+            SKIP_OPTION=""
+            if [ -n "${{ github.event.inputs.skip_if_empty }}" ]; then
+              SKIP_OPTION="--skip-if-empty ${{ github.event.inputs.skip_if_empty }}"
+            fi
+            
+            # バッチ処理実行
+            if python update_googlemap_urls.py \
+              --input "${{ github.event.inputs.csv_file }}" \
+              --workers ${{ github.event.inputs.workers }} \
+              --delay 3 \
+              --start-row $START_ROW \
+              --end-row $END_ROW \
+              --save-interval 50 \
+              $SKIP_OPTION; then
+              
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              echo "✅ バッチ ${BATCH} 完了"
+              
+              # 変更をコミット＆プッシュ
+              if ! git diff --quiet "${{ github.event.inputs.csv_file }}"; then
+                git add "${{ github.event.inputs.csv_file }}"
+                git commit -m "chore: Update GoogleMap URLs batch ${BATCH}/${TOTAL_BATCHES} (rows ${START_ROW}-${END_ROW})"
+                
+                # プッシュ（リトライ付き）
+                for i in {1..3}; do
+                  git pull --rebase origin main && git push && break || {
+                    if [ $i -lt 3 ]; then
+                      echo "⚠️ プッシュ失敗 - リトライ $i/3"
+                      sleep 5
+                    else
+                      echo "❌ プッシュ失敗 - スキップして続行"
+                      ERROR_COUNT=$((ERROR_COUNT + 1))
+                    fi
+                  }
+                done
+              else
+                echo "📝 変更なし（すべてスキップされた可能性）"
+                SKIP_COUNT=$((SKIP_COUNT + 1))
+              fi
+              
+            else
+              echo "❌ バッチ ${BATCH} でエラー発生"
+              ERROR_COUNT=$((ERROR_COUNT + 1))
+            fi
+            
+            # 最後のバッチでなければ待機
+            if [ $BATCH -lt $TOTAL_BATCHES ]; then
+              echo ""
+              echo "⏳ ${WAIT_TIME}秒待機中（アクセス制限対策）..."
+              sleep $WAIT_TIME
+              echo ""
+            fi
+          done
+          
+          echo ""
+          echo "=========================================="
+          echo "✅ 全バッチ処理完了"
+          echo "=========================================="
+          echo "📊 最終結果:"
+          echo "  - 成功: ${SUCCESS_COUNT}/${TOTAL_BATCHES} バッチ"
+          echo "  - エラー: ${ERROR_COUNT} バッチ"
+          echo "  - 変更なし: ${SKIP_COUNT} バッチ"
+          echo ""
+          
+          # 結果をGitHub Outputに保存
+          echo "total_batches=$TOTAL_BATCHES" >> $GITHUB_OUTPUT
+          echo "success_count=$SUCCESS_COUNT" >> $GITHUB_OUTPUT
+          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
+          echo "skip_count=$SKIP_COUNT" >> $GITHUB_OUTPUT
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 📊 順次バッチ処理 - 実行結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 処理設定" >> $GITHUB_STEP_SUMMARY
+          echo "- **ファイル**: ${{ github.event.inputs.csv_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **バッチサイズ**: ${{ github.event.inputs.batch_size }}行" >> $GITHUB_STEP_SUMMARY
+          echo "- **バッチ間待機**: ${{ github.event.inputs.wait_between_batches }}秒" >> $GITHUB_STEP_SUMMARY
+          echo "- **並列数（バッチ内）**: ${{ github.event.inputs.workers }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 実行結果" >> $GITHUB_STEP_SUMMARY
+          echo "- **総バッチ数**: ${{ steps.sequential.outputs.total_batches }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **成功**: ${{ steps.sequential.outputs.success_count }} バッチ" >> $GITHUB_STEP_SUMMARY
+          echo "- **エラー**: ${{ steps.sequential.outputs.error_count }} バッチ" >> $GITHUB_STEP_SUMMARY
+          echo "- **変更なし**: ${{ steps.sequential.outputs.skip_count }} バッチ" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.sequential.outputs.error_count }}" = "0" ]; then
+            echo "✅ **すべてのバッチが正常に完了しました！**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **一部のバッチでエラーが発生しました**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "エラーが発生したバッチは、ログで該当範囲を確認して再実行してください。" >> $GITHUB_STEP_SUMMARY
+          fi

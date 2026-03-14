@@ -1,0 +1,866 @@
+name: brightdata_reviews_新仕様
+
+# 地域別ファイルへの書き込みは並列実行OK
+# 複数実行の同時実行を許可（重複はreview idで後から削除可能）
+
+on:
+  workflow_dispatch:
+    inputs:
+      csv_file:
+        description: '処理対象のCSVファイル (例: results/dental_new.csv)'
+        required: true
+        default: 'results/dental_new_hokkaido.csv'
+      output_file:
+        description: 'レビューを保存するCSVファイル (例: results/dental_new_reviews.csv)'
+        required: true
+        default: 'results/dental_new_reviews_hokkaido.csv'
+      merge_to_all_regions:
+        description: '完了後に全地域ファイルをマージするか'
+        required: false
+        default: true
+        type: boolean
+      all_regions_file:
+        description: 'マージ先の全地域ファイル'
+        required: false
+        default: 'results/dental_new_reviews_all_regions.csv'
+      days_back:
+        description: '何日前までのレビューを取得するか (例: 10)'
+        required: true
+        default: '10'
+      start_from_batch:
+        description: '【再開用】開始するバッチ番号 (通常は1のまま)'
+        required: false
+        default: '1'
+      generate_report:
+        description: '完了後にレビュー増減レポートを生成するか'
+        required: true
+        default: true
+        type: boolean
+      report_days:
+        description: '【レポート用】何日間の増減を分析するか (空欄=全期間)'
+        required: false
+        default: '10'
+      skip_column:
+        description: 'スキップ判定に使う列名 (この列が空の行は処理しない)'
+        required: false
+        default: 'web'
+
+jobs:
+  # レビュー取得ジョブ（並列実行可能）
+  sequential-review-fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # GitHub Actions上限6時間より少し短く設定
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Pull latest CSV
+        run: |
+          git pull origin main
+          echo "✅ 最新のCSVを取得しました"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Validate Environment
+        run: |
+          echo "🔍 環境検証中..."
+          
+          # APIトークンの確認
+          if [ -z "${{ secrets.BRIGHTDATA_API_TOKEN }}" ]; then
+            echo "❌ エラー: BRIGHTDATA_API_TOKEN が設定されていません"
+            exit 1
+          fi
+          echo "✅ APIトークン: 設定済み"
+          
+          # 入力CSVファイルの確認
+          if [ ! -f "${{ github.event.inputs.csv_file }}" ]; then
+            echo "❌ エラー: 入力CSVファイルが見つかりません: ${{ github.event.inputs.csv_file }}"
+            exit 1
+          fi
+          echo "✅ 入力CSV: ${{ github.event.inputs.csv_file }}"
+          
+          # 行数確認
+          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
+          echo "✅ 総行数: ${TOTAL_ROWS}行（ヘッダー含む）"
+          
+          # 出力ディレクトリの作成
+          mkdir -p results/logs results/reports
+          echo "✅ 出力ディレクトリ: 準備完了"
+          
+          # Pythonスクリプトの確認
+          if [ ! -f "get_reviews_from_dental_new.py" ]; then
+            echo "❌ エラー: get_reviews_from_dental_new.py が見つかりません"
+            exit 1
+          fi
+          echo "✅ スクリプト: get_reviews_from_dental_new.py"
+          
+          echo ""
+          echo "✅ 環境検証完了 - 処理を開始します"
+      
+      - name: Sequential Batch Processing
+        id: sequential
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          ZONE_NAME: ${{ secrets.BRIGHTDATA_ZONE_NAME || 'serp_api1' }}
+        run: |
+          # Git設定
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # ロックファイルのパス
+          LOCK_FILE="/tmp/git_operations.lock"
+          SNAPSHOT_WAITING_FLAG="/tmp/snapshot_waiting.flag"
+          
+          # Git操作用ロック取得関数（タイムアウト付き）
+          acquire_git_lock() {
+            local timeout=${1:-30}  # デフォルト30秒
+            local elapsed=0
+            
+            while [ $elapsed -lt $timeout ]; do
+              if mkdir "$LOCK_FILE" 2>/dev/null; then
+                echo "🔒 Gitロック取得成功"
+                return 0
+              fi
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            
+            echo "⚠️ Gitロック取得タイムアウト（${timeout}秒）"
+            return 1
+          }
+          
+          # Git操作用ロック解放関数
+          release_git_lock() {
+            if [ -d "$LOCK_FILE" ]; then
+              rmdir "$LOCK_FILE" 2>/dev/null
+              echo "🔓 Gitロック解放"
+            fi
+          }
+          
+          # タイムアウト前強制push関数
+          force_final_push() {
+            echo ""
+            echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
+            echo "⚠️  タイムアウト直前 - 緊急データ保存開始"
+            echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
+            
+            # ロック強制取得（緊急時は既存ロック削除）
+            release_git_lock
+            acquire_git_lock 10 || {
+              echo "⚠️ ロック強制解除"
+              release_git_lock
+            }
+            
+            # すべての変更をステージング
+            git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+            git add results/dental_new_reviews_batch_*.csv 2>/dev/null || true
+            git add results/logs/*.log 2>/dev/null || true
+            
+            if ! git diff --staged --quiet 2>/dev/null; then
+              echo "💾 途中データを緊急コミット中..."
+              git commit -m "chore: Emergency save before timeout (batch ${CURRENT_BATCH:-unknown}/${TOTAL_BATCHES:-unknown})"
+              
+              # 必ずpushを試みる（最大3回）
+              for i in {1..3}; do
+                echo "🚨 緊急Push試行 $i/3..."
+                
+                # 前回のrebase状態をクリーンアップ
+                if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+                  echo "⚠️ rebase状態クリーンアップ"
+                  git rebase --abort 2>/dev/null || true
+                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                fi
+                
+                # 最新を取得してrebase試行
+                git fetch origin main 2>/dev/null || true
+                git rebase origin/main 2>/dev/null || {
+                  # rebase失敗時はクリーンアップしてマージに切り替え
+                  git rebase --abort 2>/dev/null || true
+                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                  git pull origin main --no-rebase -X ours 2>/dev/null || true
+                }
+                
+                if git push origin main; then
+                  echo "✅ 緊急Push成功！データ保存完了"
+                  release_git_lock
+                  return 0
+                else
+                  echo "❌ 緊急Push失敗 (attempt $i/3)"
+                  sleep 2
+                fi
+              done
+              echo "⚠️ 緊急Pushに失敗しましたが、Artifactには保存されます"
+            else
+              echo "📝 保存すべき新しい変更はありません"
+            fi
+            release_git_lock
+          }
+          
+          # 定期自動保存関数（バッチ途中でも30分ごとに保存）
+          auto_save_periodically() {
+            local SAVE_INTERVAL=1800  # 30分（秒単位）
+            local SAVE_COUNT=0
+            
+            while true; do
+              sleep $SAVE_INTERVAL
+              SAVE_COUNT=$((SAVE_COUNT + 1))
+              
+              echo ""
+              echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
+              echo "⏰ 定期自動保存 #${SAVE_COUNT} (30分ごと)"
+              echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
+              
+              # 🔴 スナップショット待機中かチェック
+              if [ -f "$SNAPSHOT_WAITING_FLAG" ]; then
+                echo "⏸️ 定期自動保存 #${SAVE_COUNT} - スナップショット処理中のためスキップ"
+                echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
+                continue
+              fi
+              
+              # ロック取得試行（5秒でタイムアウト。バッチ処理を優先）
+              if ! acquire_git_lock 5; then
+                echo "⚠️ 定期自動保存 #${SAVE_COUNT} - Git操作中のためスキップ"
+                echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
+                continue
+              fi
+              
+              # すべての変更をステージング
+              git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+              git add results/dental_new_reviews_batch_*.csv 2>/dev/null || true
+              
+              if ! git diff --staged --quiet 2>/dev/null; then
+                local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+                git commit -m "chore: Auto-save checkpoint #${SAVE_COUNT} (${TIMESTAMP})"
+                
+                # Push試行（1回のみ、失敗してもOK）
+                # rebase状態をクリーンアップ
+                if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+                  git rebase --abort 2>/dev/null || true
+                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                fi
+                
+                git fetch origin main 2>/dev/null || true
+                git rebase origin/main 2>/dev/null || {
+                  git rebase --abort 2>/dev/null || true
+                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                  git pull origin main --no-rebase -X ours 2>/dev/null || true
+                }
+                
+                if git push origin main 2>/dev/null; then
+                  echo "✅ 定期自動保存 #${SAVE_COUNT} - Push成功"
+                else
+                  echo "⚠️ 定期自動保存 #${SAVE_COUNT} - Push失敗（次回リトライ）"
+                fi
+              else
+                echo "📝 定期自動保存 #${SAVE_COUNT} - 新しい変更なし"
+              fi
+              
+              release_git_lock
+              echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
+            done
+          }
+          
+          # シグナルトラップ設定（SIGTERM=GitHub Actionsタイムアウト）
+          trap 'force_final_push; exit 143' TERM INT
+          
+          # 定期自動保存をバックグラウンド起動（30分ごと）
+          auto_save_periodically &
+          AUTO_SAVE_PID=$!
+          echo "💾 定期自動保存を開始しました（30分間隔、PID: $AUTO_SAVE_PID）"
+          
+          # タイムアウト監視バックグラウンドプロセス（345分=5時間45分で警告）
+          (
+            sleep $((345 * 60))  # 345分待機
+            echo "TIMEOUT_WARNING" > /tmp/workflow_timeout_warning
+            echo ""
+            echo "⏰ タイムアウト5分前に達しました - 次のバッチ後に強制終了します"
+          ) &
+          TIMEOUT_WATCHER_PID=$!
+          
+          # CSVの総行数を取得
+          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
+          TOTAL_ROWS=$((TOTAL_ROWS - 1))  # ヘッダー除く
+          
+          # ▼▼▼ 設定を環境変数として固定 ▼▼▼
+          CSV_BATCH_SIZE=500
+          WAIT_TIME=120
+          API_BATCH_SIZE=50  # 100→50に削減（タイムアウト対策）
+          MAX_WAIT_MINUTES=90  # 60→90分に延長（タイムアウト対策）
+          DATASET_ID="gd_luzfs1dn2oa0teb81"
+          # ▲▲▲ 設定を環境変数として固定 ▲▲▲
+          
+          START_BATCH=${{ github.event.inputs.start_from_batch }}
+          
+          TOTAL_BATCHES=$(( (TOTAL_ROWS + CSV_BATCH_SIZE - 1) / CSV_BATCH_SIZE ))
+          
+          echo "📊 処理概要:"
+          echo "  - 総行数: ${TOTAL_ROWS}"
+          echo "  - CSVバッチサイズ: ${CSV_BATCH_SIZE}行"
+          echo "  - 総バッチ数: ${TOTAL_BATCHES}"
+          echo "  - バッチ間待機: ${WAIT_TIME}秒"
+          echo "  - 開始バッチ: ${START_BATCH}"
+          echo "  - Dataset ID: ${DATASET_ID}"
+          echo "  - API Batch Size: ${API_BATCH_SIZE}件/回"
+          echo "  - API待機時間: ${MAX_WAIT_MINUTES}分"
+          echo "  - Days back: ${{ github.event.inputs.days_back }}"
+          echo "  - 💾 定期自動保存: 有効（30分間隔）"
+          echo "  - ⏰ タイムアウト監視: 有効（345分で警告）"
+          echo ""
+          
+          SUCCESS_COUNT=0
+          ERROR_COUNT=0
+          SKIP_COUNT=0
+          CURRENT_BATCH=0
+          
+          # バッチループ
+          for ((BATCH=$START_BATCH; BATCH<=TOTAL_BATCHES; BATCH++)); do
+            # 現在のバッチ番号を記録（緊急Push用）
+            CURRENT_BATCH=$BATCH
+            
+            START_ROW=$(( (BATCH - 1) * CSV_BATCH_SIZE + 1 ))
+            END_ROW=$(( BATCH * CSV_BATCH_SIZE ))
+            
+            if [ $END_ROW -gt $TOTAL_ROWS ]; then
+              END_ROW=$TOTAL_ROWS
+            fi
+            
+            echo "=========================================="
+            echo "🚀 バッチ ${BATCH}/${TOTAL_BATCHES} 開始"
+            echo "   範囲: 行${START_ROW}～${END_ROW}"
+            echo "=========================================="
+            
+            # 環境変数を設定
+            export INPUT_CSV="${{ github.event.inputs.csv_file }}"
+            export OUTPUT_CSV="${{ github.event.inputs.output_file }}"
+            export UPDATE_CSV="results/dental_new_reviews_batch_${BATCH}.csv"
+            export START_ROW=$START_ROW
+            export END_ROW=$END_ROW
+            export BATCH_SIZE=${API_BATCH_SIZE}
+            export DAYS_BACK=${{ github.event.inputs.days_back }}
+            export MAX_WAIT_MINUTES=${MAX_WAIT_MINUTES}
+            export BRIGHTDATA_DATASET_ID="${DATASET_ID}"
+            
+            # skip_column入力値を環境変数に設定
+            SKIP_COL="${{ github.event.inputs.skip_column }}"
+            if [ -z "$SKIP_COL" ]; then
+              SKIP_COL="web"
+            fi
+            export SKIP_COLUMN="$SKIP_COL"
+            
+            echo "========================================"
+            echo "🔍 スキップ判定列: [$SKIP_COLUMN]"
+            echo "========================================"
+            
+            # バッチ処理実行（リトライ付き）
+            RETRY_COUNT=0
+            MAX_RETRIES=3
+            BATCH_SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              echo "🔄 実行試行 $((RETRY_COUNT + 1))/$MAX_RETRIES"
+              
+              if python get_reviews_from_dental_new.py 2>&1 | tee -a results/logs/batch_${BATCH}.log; then
+                BATCH_SUCCESS=true
+                break
+              else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  WAIT_RETRY=$((30 * RETRY_COUNT))
+                  echo "⚠️ バッチ ${BATCH} 失敗 - ${WAIT_RETRY}秒後にリトライ ($RETRY_COUNT/$MAX_RETRIES)"
+                  sleep $WAIT_RETRY
+                fi
+              fi
+            done
+            
+            # 成功・失敗に関わらず、途中保存されたCSVをpush
+            echo "💾 バッチ処理後のコミット処理を開始..."
+            
+            # Git操作のロック取得（最大30秒待機）
+            if ! acquire_git_lock 30; then
+              echo "❌ Gitロック取得失敗 - コミット処理をスキップ"
+              continue
+            fi
+            
+            # 出力ファイルが変更されていれば追加
+            if [ -f "${{ github.event.inputs.output_file }}" ]; then
+              git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+            fi
+            
+            # 増分ファイルも追加（存在する場合）
+            if [ -f "results/dental_new_reviews_batch_${BATCH}.csv" ]; then
+              git add "results/dental_new_reviews_batch_${BATCH}.csv" 2>/dev/null || true
+            fi
+            
+            # ログファイルも追加（.gitignoreで無視されている場合はスキップ）
+            if [ -f "results/logs/batch_${BATCH}.log" ]; then
+              git add "results/logs/batch_${BATCH}.log" 2>/dev/null || true
+            fi
+            
+            # 変更がある場合のみコミット＆プッシュ
+            if ! git diff --staged --quiet 2>/dev/null; then
+              # コミットメッセージを成功/失敗に応じて変更
+              if [ "$BATCH_SUCCESS" = true ]; then
+                COMMIT_MSG="chore: Fetch reviews batch ${BATCH}/${TOTAL_BATCHES} (rows ${START_ROW}-${END_ROW})"
+              else
+                COMMIT_MSG="chore: Partial save batch ${BATCH}/${TOTAL_BATCHES} (incomplete/timeout)"
+              fi
+              
+              git commit -m "$COMMIT_MSG"
+              
+              # プッシュ（リトライ付き） - マージコンフリクトを自動解決
+              for i in {1..3}; do
+                echo "Push attempt $i/3..."
+                
+                # 前回のrebaseが残っている場合はクリーンアップ
+                if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+                  echo "⚠️ 前回のrebase状態を検出 - クリーンアップ中..."
+                  git rebase --abort 2>/dev/null || true
+                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                fi
+                
+                # リモートの変更を取得
+                git fetch origin main
+                
+                # rebaseを試みる
+                if git rebase origin/main; then
+                  echo "✅ Rebase成功"
+                else
+                  echo "⚠️ Rebaseコンフリクト検出 - 自動解決を試みます"
+                  
+                  # rebaseを中止してクリーンアップ
+                  git rebase --abort 2>/dev/null || true
+                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                  
+                  # マージ戦略で再試行（CSVファイルは常にローカル版を優先）
+                  git pull origin main --no-rebase -X ours || {
+                    echo "⚠️ マージコンフリクト - 手動解決"
+                    # コンフリクトファイルを確認
+                    git status
+                    
+                    # CSVファイルのコンフリクトは自動解決（ours戦略）
+                    git checkout --ours "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+                    git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+                    
+                    # 増分CSVも同様
+                    git checkout --ours "results/dental_new_reviews_batch_${BATCH}.csv" 2>/dev/null || true
+                    git add "results/dental_new_reviews_batch_${BATCH}.csv" 2>/dev/null || true
+                    
+                    # マージを完了
+                    git commit --no-edit 2>/dev/null || true
+                  }
+                fi
+                
+                # プッシュ
+                if git push origin main; then
+                  echo "✅ プッシュ成功"
+                  break
+                else
+                  echo "❌ プッシュ失敗 (attempt $i/3)"
+                  if [ $i -eq 3 ]; then
+                    echo "⚠️ プッシュ失敗 - データはArtifactから取得可能"
+                  else
+                    echo "⏳ 5秒待機してリトライ..."
+                    sleep 5
+                  fi
+                fi
+              done
+            else
+              echo "📝 変更なし（コミット不要）"
+            fi
+            
+            # Git操作のロック解放
+            release_git_lock
+            
+            # バッチの成功判定
+            if [ "$BATCH_SUCCESS" = true ]; then
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              echo "✅ バッチ ${BATCH} 完了"
+            else
+              echo "❌ バッチ ${BATCH} でエラー発生（$MAX_RETRIES 回リトライ後）"
+              ERROR_COUNT=$((ERROR_COUNT + 1))
+              
+              # エラーログを保存
+              if [ -f results/logs/dental_reviews.log ]; then
+                echo "" >> results/logs/errors.log
+                echo "========== バッチ ${BATCH} エラー ($(date)) =========" >> results/logs/errors.log
+                tail -n 100 results/logs/dental_reviews.log >> results/logs/errors.log
+              fi
+              
+              # エラーが連続3回以上なら処理を中断
+              if [ $ERROR_COUNT -ge 3 ] && [ $SUCCESS_COUNT -eq 0 ]; then
+                echo "❌ 連続エラーが多すぎます。処理を中断します。"
+                
+                # バックグラウンドプロセスを停止
+                kill $AUTO_SAVE_PID 2>/dev/null || true
+                kill $TIMEOUT_WATCHER_PID 2>/dev/null || true
+                
+                echo "ERROR_BATCHES=$ERROR_COUNT" >> $GITHUB_OUTPUT
+                exit 1
+              fi
+            fi
+            
+            # タイムアウト警告チェック（345分経過）
+            if [ -f /tmp/workflow_timeout_warning ]; then
+              echo ""
+              echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
+              echo "⚠️  タイムアウト警告検出 - 処理を安全に終了します"
+              echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
+              echo "📊 処理済みバッチ: ${BATCH}/${TOTAL_BATCHES}"
+              echo "💾 次回は start_from_batch: $((BATCH + 1)) で再開してください"
+              
+              # バックグラウンドプロセスを停止
+              kill $AUTO_SAVE_PID 2>/dev/null || true
+              kill $TIMEOUT_WATCHER_PID 2>/dev/null || true
+              
+              force_final_push
+              break  # ループを抜けて終了
+            fi
+            
+            # 最後のバッチでなければ待機
+            if [ $BATCH -lt $TOTAL_BATCHES ]; then
+              echo ""
+              echo "⏳ ${WAIT_TIME}秒待機中（API制限対策）..."
+              sleep $WAIT_TIME
+              echo ""
+            fi
+          done
+          
+          # バックグラウンドプロセスを停止
+          kill $AUTO_SAVE_PID 2>/dev/null || true
+          kill $TIMEOUT_WATCHER_PID 2>/dev/null || true
+          echo "✅ 定期自動保存とタイムアウト監視を停止しました"
+          
+          # 最終レポート
+          echo ""
+          echo "=========================================="
+          echo "📊 処理完了サマリー"
+          echo "=========================================="
+          echo "✅ 成功バッチ: ${SUCCESS_COUNT}/$TOTAL_BATCHES"
+          echo "❌ エラーバッチ: ${ERROR_COUNT}/$TOTAL_BATCHES"
+          echo "📝 スキップバッチ: ${SKIP_COUNT}/$TOTAL_BATCHES"
+          echo "=========================================="
+          
+          # 成功率を計算
+          if [ $TOTAL_BATCHES -gt 0 ]; then
+            SUCCESS_RATE=$(( SUCCESS_COUNT * 100 / TOTAL_BATCHES ))
+            echo "📊 成功率: ${SUCCESS_RATE}%"
+          fi
+          
+          # 出力ファイルの確認
+          if [ -f "${{ github.event.inputs.output_file }}" ]; then
+            OUTPUT_LINES=$(wc -l < "${{ github.event.inputs.output_file }}" | xargs)
+            OUTPUT_REVIEWS=$((OUTPUT_LINES - 1))
+            echo "📄 出力レビュー数: ${OUTPUT_REVIEWS}件"
+            echo "📁 出力ファイル: ${{ github.event.inputs.output_file }}"
+          fi
+          
+          # エラーがあった場合はログを表示
+          if [ $ERROR_COUNT -gt 0 ]; then
+            echo ""
+            echo "⚠️ エラーが発生したバッチがあります"
+            if [ -f results/logs/dental_reviews.log ]; then
+              echo "詳細はログファイルを確認してください: results/logs/dental_reviews.log"
+              echo ""
+              echo "最新のエラーログ（最後の50行）:"
+              tail -n 50 results/logs/dental_reviews.log
+            fi
+          fi
+      
+      - name: Merge to All Regions File
+        if: github.event.inputs.merge_to_all_regions == 'true'
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "🔄 全地域ファイルへのマージ処理"
+          echo "=========================================="
+          
+          ALL_REGIONS_FILE="${{ github.event.inputs.all_regions_file }}"
+          REGION_FILE="${{ github.event.inputs.output_file }}"
+          
+          echo "地域別ファイル: ${REGION_FILE}"
+          echo "統合先ファイル: ${ALL_REGIONS_FILE}"
+          
+          # 最新のall_regionsファイルを取得
+          git pull origin main || true
+          
+          # Pythonでマージ処理
+          python3 - <<'EOF'
+          import csv
+          import os
+          from collections import OrderedDict
+          
+          all_regions_file = os.environ.get('ALL_REGIONS_FILE', 'results/dental_new_reviews_all_regions.csv')
+          region_file = os.environ.get('REGION_FILE', '')
+          
+          if not region_file or not os.path.exists(region_file):
+              print(f"⚠️ 地域別ファイルが見つかりません: {region_file}")
+              exit(0)
+          
+          # 既存の全地域ファイルを読み込み（レビューGIDでユニーク化）
+          existing_reviews = OrderedDict()
+          if os.path.exists(all_regions_file):
+              with open(all_regions_file, 'r', encoding='utf-8') as f:
+                  reader = csv.DictReader(f)
+                  fieldnames = reader.fieldnames
+                  for row in reader:
+                      gid = row.get('レビューGID', '')
+                      if gid:
+                          existing_reviews[gid] = row
+              print(f"📊 既存レビュー: {len(existing_reviews)}件")
+          else:
+              fieldnames = None
+          
+          # 新しい地域別ファイルを読み込んでマージ
+          new_count = 0
+          update_count = 0
+          with open(region_file, 'r', encoding='utf-8') as f:
+              reader = csv.DictReader(f)
+              if fieldnames is None:
+                  fieldnames = reader.fieldnames
+              
+              for row in reader:
+                  gid = row.get('レビューGID', '')
+                  if gid:
+                      if gid in existing_reviews:
+                          existing_reviews[gid] = row  # 更新
+                          update_count += 1
+                      else:
+                          existing_reviews[gid] = row  # 新規追加
+                          new_count += 1
+          
+          print(f"✅ 新規追加: {new_count}件")
+          print(f"🔄 更新: {update_count}件")
+          
+          # マージ結果を書き込み
+          os.makedirs(os.path.dirname(all_regions_file) or '.', exist_ok=True)
+          with open(all_regions_file, 'w', encoding='utf-8', newline='') as f:
+              writer = csv.DictWriter(f, fieldnames=fieldnames)
+              writer.writeheader()
+              writer.writerows(existing_reviews.values())
+          
+          total = len(existing_reviews)
+          print(f"📄 統合後の総レビュー数: {total}件")
+          print(f"💾 保存先: {all_regions_file}")
+          EOF
+          
+          # マージ結果をコミット＆プッシュ
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add "${ALL_REGIONS_FILE}" 2>/dev/null || true
+          
+          if ! git diff --staged --quiet 2>/dev/null; then
+            REGION_NAME=$(basename "${REGION_FILE}" .csv | sed 's/dental_new_reviews_//')
+            git commit -m "chore: Merge ${REGION_NAME} reviews to all_regions"
+            
+            # プッシュ（リトライ付き）
+            for i in {1..3}; do
+              echo "🚀 マージ結果プッシュ試行 $i/3..."
+              
+              # 前回のrebase状態をクリーンアップ
+              if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+                echo "⚠️ rebase状態クリーンアップ"
+                git rebase --abort 2>/dev/null || true
+                rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+              fi
+              
+              # リモートの最新を取得してrebase
+              git fetch origin main
+              if git rebase origin/main; then
+                echo "✅ Rebase成功"
+              else
+                echo "⚠️ Rebase失敗 - 通常のマージに切り替え"
+                git rebase --abort 2>/dev/null || true
+                rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+                
+                # マージ戦略で再試行（CSVファイルは常にローカル版を優先）
+                if git pull origin main --no-rebase -X ours; then
+                  echo "✅ マージ成功"
+                else
+                  echo "❌ マージ失敗"
+                  if [ $i -eq 3 ]; then
+                    echo "⚠️ 最終試行でも失敗 - Artifactをご確認ください"
+                    break
+                  fi
+                  sleep 3
+                  continue
+                fi
+              fi
+              
+              # プッシュ試行
+              if git push origin main; then
+                echo "✅ マージ結果プッシュ成功"
+                break
+              else
+                echo "❌ マージ結果プッシュ失敗 (attempt $i/3)"
+                if [ $i -lt 3 ]; then
+                  sleep 3
+                fi
+              fi
+            done
+          else
+            echo "📝 マージによる変更なし"
+          fi
+          
+          echo "=========================================="
+      
+      - name: Generate Review Report
+        if: github.event.inputs.generate_report == 'true'
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "📊 レビューレポート自動生成"
+          echo "=========================================="
+          
+          # レポート生成スクリプトの存在確認
+          if [ ! -f "generate_review_report.py" ]; then
+            echo "⚠️ generate_review_report.py が見つかりません - レポート生成をスキップします"
+            exit 0
+          fi
+          
+          # レポート生成
+          if [ -f "${{ github.event.inputs.output_file }}" ]; then
+            REPORT_ARGS="--reviews ${{ github.event.inputs.output_file }} --facilities ${{ github.event.inputs.csv_file }}"
+            
+            # 期間指定がある場合
+            if [ -n "${{ github.event.inputs.report_days }}" ]; then
+              REPORT_ARGS="$REPORT_ARGS --days ${{ github.event.inputs.report_days }}"
+              echo "期間: 過去${{ github.event.inputs.report_days }}日間"
+            else
+              echo "期間: 全期間"
+            fi
+            
+            python generate_review_report.py $REPORT_ARGS
+            
+            echo ""
+            echo "✅ レポート生成完了"
+            
+            # レポートをコミット
+            if ls results/reports/review_*.md 1> /dev/null 2>&1; then
+              git add results/reports/ 2>/dev/null || true
+              
+              # 変更がある場合のみコミット
+              if ! git diff --staged --quiet 2>/dev/null; then
+                git commit -m "docs: Add review report for batch processing"
+                
+                # プッシュ（リトライ付き）
+                for i in {1..3}; do
+                  echo "Push attempt $i/3..."
+                  
+                  # リモートの変更を取得してマージ
+                  git pull --rebase origin main || true
+                  
+                  if git push origin main; then
+                    echo "✅ レポートプッシュ成功"
+                    break
+                  else
+                    if [ $i -lt 3 ]; then
+                      echo "⚠️ レポートプッシュ失敗 - リトライ $i/3"
+                      sleep 5
+                    else
+                      echo "⚠️ レポートプッシュ失敗（Artifactから取得可能）"
+                    fi
+                  fi
+                done
+              else
+                echo "📝 レポートに変更なし"
+              fi
+            fi
+          else
+            echo "⚠️ レビューファイルが見つかりません: ${{ github.event.inputs.output_file }}"
+          fi
+      
+      - name: Upload log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dental-reviews-logs-${{ github.run_number }}
+          path: |
+            results/logs/dental_reviews.log
+            results/logs/errors.log
+            results/logs/batch_*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      
+      - name: Upload main output file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dental-reviews-output-${{ github.run_number }}
+          path: ${{ github.event.inputs.output_file }}
+          if-no-files-found: ignore
+          retention-days: 7
+      
+      - name: Upload batch files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dental-reviews-batches-${{ github.run_number }}
+          path: results/dental_new_reviews_batch_*.csv
+          if-no-files-found: ignore
+          retention-days: 7
+      
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dental-review-reports-${{ github.run_number }}
+          path: results/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 処理完了" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 設定" >> $GITHUB_STEP_SUMMARY
+          echo "- 入力CSV: \`${{ github.event.inputs.csv_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 出力CSV: \`${{ github.event.inputs.output_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Days back: ${{ github.event.inputs.days_back }}日" >> $GITHUB_STEP_SUMMARY
+          echo "- 開始バッチ: ${{ github.event.inputs.start_from_batch }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "${{ github.event.inputs.output_file }}" ]; then
+            TOTAL_REVIEWS=$(wc -l < "${{ github.event.inputs.output_file }}" | xargs)
+            TOTAL_REVIEWS=$((TOTAL_REVIEWS - 1))
+            echo "### 結果" >> $GITHUB_STEP_SUMMARY
+            echo "- **総レビュー数**: ${TOTAL_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Artifactリンクを追加
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifact（データ取得）" >> $GITHUB_STEP_SUMMARY
+          echo "タイムアウトやエラーでpushされなかったデータは、以下のArtifactからダウンロードできます：" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [メイン出力ファイル (dental-reviews-output-${{ github.run_number }})](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [バッチ別ファイル (dental-reviews-batches-${{ github.run_number }})](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [ログファイル (dental-reviews-logs-${{ github.run_number }})](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 **データ復旧手順**: Artifactをダウンロード → ローカルで解凍 → リポジトリにpush" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # レポート情報を追加
+          if [ "${{ github.event.inputs.generate_report }}" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📊 レポート" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ github.event.inputs.report_days }}" ]; then
+              echo "- 分析期間: 過去${{ github.event.inputs.report_days }}日間" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- 分析期間: 全期間" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # レポートファイルのリンク
+            if ls results/reports/review_*.md 1> /dev/null 2>&1; then
+              echo "- レポートが生成されました（Artifactsからダウンロード可能）" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
