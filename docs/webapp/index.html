@@ -23,7 +23,6 @@
                     <option value="reviews">📝 レビュー取得 (Reviews)</option>
                     <option value="reviews_auto_batch">🚀 レビュー取得・自動分割 (Reviews Auto-Batch)</option>
                     <option value="facility">🏢 施設データ取得 (Facility)</option>
-                    <option value="extract_fid">🔑 FID抽出 (Extract FID)</option>
                 </select>
             </div>
 
@@ -31,63 +30,6 @@
             <div id="preset_container" style="display: none; margin-bottom: 20px;"></div>
             
             <form id="jobForm">
-                <!-- Extract FID Workflow -->
-                <div id="form_extract_fid" class="workflow-form" style="display: none;">
-                    <h3>🔑 FID抽出設定</h3>
-                    <p class="section-description">GoogleマップURLからFacility ID (FID)を抽出します</p>
-                    
-                    <div class="form-group">
-                        <label for="extract_fid_input_file">入力CSVファイル *</label>
-                        <select id="extract_fid_input_file" required>
-                            <option value="">選択してください</option>
-                            <!-- GitHub APIから動的に読み込まれます -->
-                        </select>
-                        <small>GoogleマップURLが含まれるCSVファイル (results/*.csv)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="extract_fid_output_choice">出力ファイル選択方法 *</label>
-                        <select id="extract_fid_output_choice" required>
-                            <option value="new">📝 新規ファイル名を入力</option>
-                            <option value="existing">📁 既存ファイルから選択</option>
-                        </select>
-                        <small>出力先の指定方法を選択</small>
-                    </div>
-
-                    <div class="form-group" id="extract_fid_output_new_container">
-                        <label for="extract_fid_output_file">新規ファイル名 *</label>
-                        <input type="text" id="extract_fid_output_file" value="extracted_fid" pattern="[a-zA-Z0-9_]+" required>
-                        <small>英数字とアンダースコアのみ（拡張子不要、自動的に.csvが付きます）</small>
-                    </div>
-
-                    <div class="form-group" id="extract_fid_output_existing_container" style="display: none;">
-                        <label for="extract_fid_output_existing">既存ファイル *</label>
-                        <select id="extract_fid_output_existing">
-                            <option value="">選択してください</option>
-                            <!-- GitHub APIから動的に読み込まれます -->
-                        </select>
-                        <small>上書きするファイルを選択 (results/*.csv)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="extract_fid_delay">待機時間（秒）</label>
-                        <input type="number" id="extract_fid_delay" value="2" min="1" max="10">
-                        <small>各リクエスト間の待機時間（デフォルト: 2秒）</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="extract_fid_workers">並列実行数</label>
-                        <input type="number" id="extract_fid_workers" value="4" min="1" max="8">
-                        <small>同時に実行するワーカー数（デフォルト: 4）</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="extract_fid_limit">処理件数制限（テスト用）</label>
-                        <input type="number" id="extract_fid_limit" placeholder="空欄で全件処理" min="1">
-                        <small>テスト実行時のみ指定（例: 10件だけ処理）</small>
-                    </div>
-                </div>
-
                 <!-- Reviews Workflow -->
                 <div id="form_reviews" class="workflow-form" style="display: none;">
                     <h3>📝 レビュー取得設定</h3>

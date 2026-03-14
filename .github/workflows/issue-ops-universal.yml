@@ -12,8 +12,7 @@ jobs:
     if: |
       (github.event_name == 'issues' && (
         contains(github.event.issue.body, '/run-reviews') ||
-        contains(github.event.issue.body, '/run-facility') ||
-        contains(github.event.issue.body, '/run-extract-fid')
+        contains(github.event.issue.body, '/run-facility')
       )) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/承認'))
     
@@ -66,8 +65,6 @@ jobs:
             WORKFLOW="reviews"
           elif echo "$ISSUE_BODY" | grep -q "/run-facility"; then
             WORKFLOW="facility"
-          elif echo "$ISSUE_BODY" | grep -q "/run-extract-fid"; then
-            WORKFLOW="extract_fid"
           fi
           
           echo "workflow_type=$WORKFLOW" >> $GITHUB_OUTPUT
@@ -163,8 +160,7 @@ jobs:
             
             const workflowNames = {
               'reviews': '📝 レビュー取得',
-              'facility': '🏢 施設データ取得',
-              'extract_fid': '🔑 FID抽出'
+              'facility': '🏢 施設データ取得'
             };
             
             const body = [
@@ -203,8 +199,7 @@ jobs:
             const params = JSON.parse(process.env.PARAMS_JSON || '{}');
             const workflowNames = {
               'reviews': '📝 レビュー取得',
-              'facility': '🏢 施設データ取得',
-              'extract_fid': '🔑 FID抽出'
+              'facility': '🏢 施設データ取得'
             };
             
             let details = [];
@@ -299,23 +294,8 @@ jobs:
           git pull --rebase origin main
           git push || true
 
-  run-extract-fid:
-    needs: [parse-and-route]
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'extract_fid'
-    uses: ./.github/workflows/extract-fid.yml
-    secrets: inherit
-    with:
-      input_file_choice: '✍️ ファイル名を直接入力'
-      input_file: ${{ fromJson(needs.parse-and-route.outputs.params).input_file }}
-      output_file_choice: ${{ fromJson(needs.parse-and-route.outputs.params).output_choice == 'new' && '📝 新規ファイル名を入力' || '📁 既存ファイルから選択' }}
-      output_file_name: ${{ fromJson(needs.parse-and-route.outputs.params).output_file || '' }}
-      output_file_existing: ${{ fromJson(needs.parse-and-route.outputs.params).output_existing || '' }}
-      delay: ${{ fromJson(needs.parse-and-route.outputs.params).delay || '2' }}
-      limit: ${{ fromJson(needs.parse-and-route.outputs.params).limit || '' }}
-      workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '4' }}
-
   report-completion:
-    needs: [parse-and-route, run-reviews, run-facility, run-extract-fid]
+    needs: [parse-and-route, run-reviews, run-facility]
     runs-on: ubuntu-latest
     if: always() && needs.parse-and-route.outputs.should_run == 'true'
     
@@ -332,8 +312,7 @@ jobs:
             
             const jobs = {
               'reviews': '${{ needs.run-reviews.result }}',
-              'facility': '${{ needs.run-facility.result }}',
-              'extract_fid': '${{ needs.run-extract-fid.result }}'
+              'facility': '${{ needs.run-facility.result }}'
             };
             
             const workflow = '${{ needs.parse-and-route.outputs.workflow_type }}';
@@ -400,32 +379,6 @@ jobs:
                     : `results/${fidInputFile}`;
                   const fidInputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
                   files.push(`- 🔑 **FID入力ファイル**: [${fullPath}](${fidInputUrl})`);
-                }
-              } else if (workflow === 'extract_fid') {
-                // FID抽出の場合
-                const inputFile = params.input_file;
-                if (inputFile) {
-                  const fullPath = inputFile.startsWith('results/') 
-                    ? inputFile 
-                    : `results/${inputFile}`;
-                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 📍 **入力ファイル**: [${fullPath}](${inputUrl})`);
-                }
-                
-                let outputFile = '';
-                if (params.output_choice === 'new') {
-                  outputFile = params.output_file;
-                  if (!outputFile.endsWith('.csv')) outputFile += '.csv';
-                } else {
-                  outputFile = params.output_existing;
-                }
-                
-                if (outputFile) {
-                  const fullPath = outputFile.startsWith('results/') 
-                    ? outputFile 
-                    : `results/${outputFile}`;
-                  const outputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 🔑 **抽出FIDファイル**: [${fullPath}](${outputUrl})`);
                 }
               }
               

@@ -195,11 +195,6 @@ async function loadFileOptions() {
         populateDropdown('facility_custom_facility_file', facilityFiles, 'results', true);
         populateDropdown('facility_custom_exclude_gids_path', excludeFiles, 'settings', true);
         
-        // Extract FID workflow用のドロップダウンを設定
-        // すべてのresults/*.csvファイルを選択可能にする
-        populateDropdown('extract_fid_input_file', resultsCsvFiles, 'results', false);
-        populateDropdown('extract_fid_output_existing', resultsCsvFiles, 'results', false);
-        
         console.log('✅ ファイルオプションの読み込み完了');
     } catch (error) {
         console.error('❌ ファイルオプションの読み込みエラー:', error);
@@ -433,21 +428,6 @@ function getFormData() {
             data.custom_settings = Object.keys(facilityCustomSettings).length > 0 ? facilityCustomSettings : null;
             break;
             
-        case 'extract_fid':
-            data.input_file = document.getElementById('extract_fid_input_file').value;
-            data.output_choice = document.getElementById('extract_fid_output_choice').value;
-            
-            if (data.output_choice === 'new') {
-                data.output_file = document.getElementById('extract_fid_output_file').value.trim();
-            } else {
-                data.output_existing = document.getElementById('extract_fid_output_existing').value;
-            }
-            
-            data.delay = document.getElementById('extract_fid_delay').value;
-            data.workers = document.getElementById('extract_fid_workers').value;
-            const limit = document.getElementById('extract_fid_limit').value.trim();
-            if (limit) data.limit = limit;
-            break;
     }
     
     return data;
@@ -481,8 +461,7 @@ function generateIssueBody(data) {
     const commandMap = {
         'reviews': '/run-reviews',
         'reviews_auto_batch': '/run-reviews-auto-batch',
-        'facility': '/run-facility',
-        'extract_fid': '/run-extract-fid'
+        'facility': '/run-facility'
     };
     
     let body = `${commandMap[data.workflow]}\n\n`;
@@ -562,25 +541,6 @@ function generateIssueBody(data) {
             }
             break;
             
-        case 'extract_fid':
-            body += `### 🔑 FID抽出\n\n`;
-            body += `- **入力ファイル**: \`${data.input_file}\`\n`;
-            
-            if (data.output_choice === 'new') {
-                body += `- **出力方法**: 新規ファイル作成\n`;
-                body += `- **出力ファイル**: \`results/${data.output_file}.csv\`\n`;
-            } else {
-                body += `- **出力方法**: 既存ファイルに上書き\n`;
-                body += `- **出力ファイル**: \`${data.output_existing}\`\n`;
-            }
-            
-            body += `- **待機時間**: ${data.delay}秒/件\n`;
-            if (data.limit) {
-                body += `- **処理件数**: ${data.limit}件（テストモード）\n`;
-            } else {
-                body += `- **処理件数**: 全件\n`;
-            }
-            break;
     }
     
     body += `\n---\n\n`;
@@ -623,8 +583,7 @@ function openIssue() {
     const workflowNames = {
         'reviews': 'Reviews Job',
         'reviews_auto_batch': 'Reviews Auto-Batch Job',
-        'facility': 'Facility Job',
-        'extract_fid': 'Extract FID Job'
+        'facility': 'Facility Job'
     };
     
     const title = `[${workflowNames[currentWorkflow]}] ${new Date().toISOString().split('T')[0]}`;
@@ -694,27 +653,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // イベントリスナーを設定
     document.getElementById('workflow_type').addEventListener('change', switchWorkflow);
-    
-    // FID抽出の出力ファイル選択方法の切り替え
-    document.getElementById('extract_fid_output_choice')?.addEventListener('change', function() {
-        const newContainer = document.getElementById('extract_fid_output_new_container');
-        const existingContainer = document.getElementById('extract_fid_output_existing_container');
-        const newInput = document.getElementById('extract_fid_output_file');
-        const existingSelect = document.getElementById('extract_fid_output_existing');
-        
-        if (this.value === 'new') {
-            newContainer.style.display = 'block';
-            existingContainer.style.display = 'none';
-            newInput.required = true;
-            existingSelect.required = false;
-            existingSelect.value = '';
-        } else {
-            newContainer.style.display = 'none';
-            existingContainer.style.display = 'block';
-            newInput.required = false;
-            existingSelect.required = true;
-        }
-    });
     
     document.getElementById('custom_review_file')?.addEventListener('change', function() {
         toggleNewFileInput('custom_review_file', 'custom_review_file_new');
