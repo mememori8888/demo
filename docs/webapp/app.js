@@ -1,6 +1,6 @@
 // GitHubリポジトリ情報
 const GITHUB_OWNER = 'mememori8888';
-const GITHUB_REPO = 'googlemap';
+const GITHUB_REPO = 'demo';
 const GITHUB_BRANCH = 'main';
 
 // グローバル変数
