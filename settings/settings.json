@@ -4,8 +4,8 @@
     "zone_name": "serp_api1",
     "query": "歯科医院",
     "includedType": "",
-    "address_csv_path": "settings/address_wordpress_only.csv",
-    "facility_file": "results/dental.csv",
+    "address_csv_path": "settings/adress_small.csv",
+    "facility_file": "results/dental_nishinomiya-kitaguchi",
     "review_file": "results/dental_review.csv",
     "update_facility_path": "add_data.csv",
     "update_review_path": "add_review.csv",
@@ -14,5 +14,4 @@
     "heat_map": "wordpress_only_heatmap_pref_firstnum_optimized.csv",
     "fid_file": "results/fid_test.csv"
   }
- 
 ]
