@@ -1,0 +1,756 @@
+#!/usr/bin/env python3
+"""
+dental_new.csvのgooglemap列のURLからレビューを取得するスクリプト（Web Scraper API版）
+reviews_BrightData_50.pyの出力形式に合わせる
+"""
+import json
+import csv
+import os
+import sys
+import time
+import requests
+import logging
+from pathlib import Path
+from typing import List, Dict, Optional
+
+# パス設定
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / 'results'
+
+# ▼▼▼ 修正箇所: 必ず Path() で囲むように変更 ▼▼▼
+# 入力ファイル（dental_new.csv）
+INPUT_CSV = Path(os.getenv('INPUT_CSV', 'results/dental_new.csv'))
+if not INPUT_CSV.is_absolute():
+    INPUT_CSV = BASE_DIR / INPUT_CSV
+
+# 出力ファイル（レビューCSV）
+OUTPUT_CSV = Path(os.getenv('OUTPUT_CSV', 'results/dental_new_reviews.csv'))
+if not OUTPUT_CSV.is_absolute():
+    OUTPUT_CSV = BASE_DIR / OUTPUT_CSV
+
+# 増分ファイル（新規レビューのみ）
+update_csv_env = os.getenv('UPDATE_CSV', '')
+if update_csv_env:
+    UPDATE_CSV = Path(update_csv_env)
+    if not UPDATE_CSV.is_absolute():
+        UPDATE_CSV = BASE_DIR / UPDATE_CSV
+else:
+    UPDATE_CSV = None
+# ▲▲▲ 修正ここまで ▲▲▲
+
+# 処理範囲の設定（並列処理用）
+START_ROW = int(os.getenv('START_ROW', '1'))  # 1-based
+END_ROW = int(os.getenv('END_ROW', '0')) if os.getenv('END_ROW') else None  # 0=全件
+
+# API設定（Web Scraper API）
+API_TOKEN = os.getenv('BRIGHTDATA_API_TOKEN')
+DATASET_ID = os.getenv('BRIGHTDATA_DATASET_ID', 'gd_luzfs1dn2oa0teb81')  # Google Maps Reviews dataset
+DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
+BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
+MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
+
+
+def setup_logging():
+    """ログ設定を初期化"""
+    log_dir = RESULTS_DIR / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True) # parents=Trueを追加
+    log_file_path = log_dir / 'dental_reviews.log'
+    
+    # 既存のハンドラーをクリア
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    logging.basicConfig(
+        filename=str(log_file_path),
+        filemode='a',  # 追記モード
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s %(message)s'
+    )
+    # コンソールにも出力
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    logging.getLogger('').addHandler(console)
+
+
+class BrightDataWebScraperReviews:
+    """BrightData Web Scraper API でレビューを取得"""
+    
+    def __init__(self, api_token: str, dataset_id: str):
+        self.api_token = api_token
+        self.dataset_id = dataset_id
+        self.headers = {
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json",
+        }
+        self.base_url = "https://api.brightdata.com/datasets/v3"
+    
+    def trigger_snapshot(self, urls_with_params: List[Dict]) -> str:
+        """
+        スナップショット収集をトリガー（/scrape エンドポイント使用、公式ドキュメント準拠）
+        """
+        # 公式ドキュメント通りの /scrape エンドポイント
+        trigger_url = f"{self.base_url}/scrape"
+        params = {
+            "dataset_id": self.dataset_id,
+            "notify": "false",
+            "include_errors": "true"
+        }
+        
+        # 空のフィールドを削除（APIエラー回避）
+        clean_params = []
+        for item in urls_with_params:
+            clean_item = {k: v for k, v in item.items() if v != "" and v is not None}
+            clean_params.append(clean_item)
+        
+        # 公式ドキュメント通りの形式: {"input": [...]}
+        payload = {"input": clean_params}
+        
+        # デバッグ: 送信するJSONを出力
+        logging.info(f"📤 Sending payload: {json.dumps(payload, ensure_ascii=False)[:500]}...")
+        logging.info(f"📤 Number of items: {len(clean_params)}")
+        logging.info(f"📤 Request URL: {trigger_url}?{requests.compat.urlencode(params)}")
+        
+        # リトライ設定
+        max_retries = 3
+        retry_delays = [5, 10, 20]  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                logging.info(f"🔄 Triggering snapshot (attempt {attempt + 1}/{max_retries})...")
+                
+                resp = requests.post(
+                    trigger_url,
+                    params=params,
+                    headers=self.headers,
+                    data=json.dumps(payload),  # json.dumps を使用（公式に準拠）
+                    timeout=120
+                )
+                
+                # レスポンス内容をログ出力（デバッグ用）
+                if resp.status_code >= 400:
+                    logging.error(f"API Error Response: {resp.text[:500]}")
+                
+                resp.raise_for_status()
+                snapshot_id = resp.json()["snapshot_id"]
+                logging.info(f"✅ Snapshot triggered: {snapshot_id}")
+                
+                # 成功後も少し待機（サーバー負荷軽減）
+                time.sleep(2)
+                return snapshot_id
+                
+            except requests.exceptions.HTTPError as e:
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    logging.warning(f"⚠️ Trigger failed: {e}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    logging.error(f"❌ Failed to trigger snapshot after {max_retries} attempts: {e}")
+                    raise
+            except Exception as e:
+                logging.error(f"❌ Failed to trigger snapshot: {e}")
+                raise
+    
+    def wait_for_snapshot(self, snapshot_id: str, max_wait_minutes: int = 60) -> bool:
+        """
+        スナップショット完了まで待機（/progress エンドポイント使用）
+        """
+        progress_url = f"{self.base_url}/progress/{snapshot_id}"
+        start_time = time.time()
+        max_wait_seconds = max_wait_minutes * 60
+        interval = 15  # ポーリング間隔（秒）
+        
+        logging.info(f"⏳ Waiting for snapshot {snapshot_id}...")
+        
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed > max_wait_seconds:
+                logging.error(f"❌ Timeout after {max_wait_minutes} minutes")
+                return False
+            
+            try:
+                resp = requests.get(
+                    progress_url,
+                    headers={"Authorization": f"Bearer {self.api_token}"},
+                    timeout=60
+                )
+                
+                # 5xx エラーは一時的なものとしてリトライ
+                if resp.status_code >= 500:
+                    logging.warning(f"⚠️ Progress check {resp.status_code}, retrying in {interval}s...")
+                    time.sleep(interval)
+                    continue
+                
+                resp.raise_for_status()
+                data = resp.json()
+                status = data.get("status")
+                
+                # 30秒ごとにログ出力
+                if int(elapsed) % 30 == 0 or int(elapsed) < 30:
+                    logging.info(f"Status: {status} (elapsed: {int(elapsed)}s)")
+                
+                if status == "ready":
+                    logging.info("✅ Snapshot ready!")
+                    time.sleep(3)  # 完了後も少し待機
+                    return True
+                elif status == "failed":
+                    error_msg = data.get("error_message", "Unknown error")
+                    logging.error(f"❌ Snapshot failed: {error_msg}")
+                    return False
+                
+                # collecting / digesting / その他 → まだ処理中
+                time.sleep(interval)
+                
+            except requests.exceptions.RequestException as e:
+                # 502 / Connection broken などは一時的エラーとしてリトライ
+                logging.warning(f"⚠️ Progress check error: {e}, retrying in {interval}s...")
+                time.sleep(interval)
+                continue
+            except Exception as e:
+                logging.error(f"❌ Unexpected error during progress check: {e}")
+                time.sleep(interval)
+                continue
+    
+    def get_snapshot_data(self, snapshot_id: str, retries: int = 5) -> List[Dict]:
+        """
+        スナップショットデータを取得（リトライ機能付き）
+        """
+        snapshot_url = f"{self.base_url}/snapshot/{snapshot_id}?format=json"
+        interval = 10  # リトライ間隔（秒）
+        
+        for attempt in range(1, retries + 1):
+            try:
+                logging.info(f"📥 Downloading snapshot data (attempt {attempt}/{retries})...")
+                resp = requests.get(
+                    snapshot_url,
+                    headers={"Authorization": f"Bearer {self.api_token}"},
+                    timeout=60
+                )
+                
+                # 5xx エラーは一時的なものとしてリトライ
+                if resp.status_code >= 500:
+                    logging.warning(f"⚠️ Snapshot download {resp.status_code} (attempt {attempt}/{retries})")
+                    if attempt < retries:
+                        time.sleep(interval)
+                        continue
+                    else:
+                        raise requests.exceptions.HTTPError(f"Failed after {retries} attempts")
+                
+                resp.raise_for_status()
+                data = resp.json()
+                
+                # デバッグ: 実際のレスポンスを完全に出力
+                logging.info(f"📊 Response type: {type(data)}")
+                logging.info(f"📝 Full response (first 2000 chars): {json.dumps(data, ensure_ascii=False)[:2000]}")
+                
+                if isinstance(data, list):
+                    logging.info(f"✅ Retrieved {len(data)} items from snapshot")
+                    if len(data) > 0:
+                        # 最初のアイテムのキーを確認
+                        logging.info(f"📋 First item keys: {list(data[0].keys())}")
+                        logging.info(f"📝 First item (full): {json.dumps(data[0], ensure_ascii=False, indent=2)}")
+                        
+                        # reviewsキーがあるか確認
+                        if 'reviews' in data[0]:
+                            logging.info(f"✨ Found 'reviews' key in first item, contains {len(data[0]['reviews'])} reviews")
+                    return data
+                elif isinstance(data, dict):
+                    logging.warning(f"⚠️ Response is dict, keys: {list(data.keys())}")
+                    logging.info(f"📝 Response (full): {json.dumps(data, ensure_ascii=False, indent=2)[:2000]}")
+                    
+                    # reviewsキーやdataキーがあるか確認
+                    if 'reviews' in data:
+                        logging.info(f"✨ Found 'reviews' key at top level, contains {len(data['reviews'])} items")
+                        return data['reviews']
+                    elif 'data' in data:
+                        logging.info(f"✨ Found 'data' key at top level, contains {len(data['data'])} items")
+                        return data['data']
+                    elif 'results' in data:
+                        logging.info(f"✨ Found 'results' key at top level, contains {len(data['results'])} items")
+                        return data['results']
+                    else:
+                        logging.warning(f"⚠️ No known data key found, returning empty list")
+                        return []
+                else:
+                    logging.warning(f"⚠️ Unexpected response format: {type(data)}")
+                    return []
+                    
+            except requests.exceptions.RequestException as e:
+                logging.warning(f"⚠️ Snapshot download error: {e} (attempt {attempt}/{retries})")
+                if attempt < retries:
+                    time.sleep(interval)
+                    continue
+                else:
+                    logging.error(f"❌ Failed to download snapshot after {retries} attempts")
+                    return []
+            except Exception as e:
+                logging.error(f"❌ Unexpected error during snapshot download: {e}")
+                if attempt < retries:
+                    time.sleep(interval)
+                    continue
+                else:
+                    return []
+        
+        return []  # すべてのリトライが失敗した場合
+    
+    def process_batch(self, urls_with_params: List[Dict], batch_id: str = "0") -> List[Dict]:
+        """
+        バッチ処理: トリガー → 待機 → データ取得
+        """
+        logging.info(f"🚀 Processing batch {batch_id} with {len(urls_with_params)} URLs")
+        
+        # 1. トリガー
+        snapshot_id = self.trigger_snapshot(urls_with_params)
+        
+        # 2. 待機
+        if not self.wait_for_snapshot(snapshot_id, max_wait_minutes=MAX_WAIT_MINUTES):
+            logging.error(f"❌ Batch {batch_id} failed")
+            return []
+        
+        # 3. データ取得
+        reviews = self.get_snapshot_data(snapshot_id)
+        
+        return reviews
+
+
+def load_dental_csv():
+    """dental_new.csvを読み込み、処理対象のエントリを返す"""
+    if not INPUT_CSV.exists():
+        logging.error(f'入力CSVファイルが見つかりません: {INPUT_CSV}')
+        return []
+    
+    entries = []
+    with open(INPUT_CSV, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        all_rows = list(reader)
+    
+    if not all_rows:
+        logging.error('CSVファイルが空です')
+        return []
+    
+    total_rows = len(all_rows)
+    
+    # 処理範囲の決定
+    # START_ROW=1 → all_rows[0]（最初のデータ行）
+    start_idx = START_ROW - 1  # 1-based → 0-based
+    if END_ROW:
+        end_idx = END_ROW  # END_ROW行目まで（END_ROW番目まで含む）
+    else:
+        end_idx = total_rows
+    
+    logging.info(f'CSVファイル: {INPUT_CSV}')
+    logging.info(f'総行数: {total_rows}')
+    logging.info(f'処理範囲: 行{START_ROW}～{END_ROW if END_ROW else "最終行"} ({end_idx - start_idx}行)')
+    
+    # スキップ判定に使う列名（環境変数から取得、デフォルトは 'web'）
+    skip_column = os.getenv('SKIP_COLUMN', 'web')
+    if not skip_column or skip_column.strip() == '':
+        skip_column = 'web'
+    logging.info(f'=========================================')
+    logging.info(f'🔍 スキップ判定列: [{skip_column}]')
+    logging.info(f'=========================================')
+    
+    for idx, row in enumerate(all_rows[start_idx:end_idx], start=START_ROW):
+        facility_id = (row.get('施設ID', '') or row.get('post_id', '')).strip()
+        facility_name = row.get('施設名', '').strip()
+        gid = row.get('施設GID', '').strip()
+        skip_value = row.get(skip_column, '').strip()
+        googlemap_url = (row.get('GoogleMap', '') or row.get('googlemap', '')).strip()
+        
+        # 指定された列が空の場合はスキップ
+        if not skip_value:
+            logging.info(f'行{idx}: {skip_column}列が空のためスキップ - {facility_name}')
+            continue
+        
+        if not googlemap_url:
+            logging.warning(f'行{idx}: GoogleMap URLがありません - {facility_name}')
+            continue
+        
+        entries.append({
+            'row_number': idx,
+            'facility_id': facility_id,
+            'facility_name': facility_name,
+            'gid': gid,
+            'url': googlemap_url
+        })
+    
+    logging.info(f'処理対象: {len(entries)}施設')
+    return entries
+
+
+def load_existing_reviews():
+    """既存のレビューファイルを読み込む（ファイルがなければ新規作成）"""
+    if not OUTPUT_CSV.exists():
+        logging.info(f'レビューファイルが見つかりません: {OUTPUT_CSV}')
+        logging.info('新規ファイルを作成します')
+        
+        # 新規ファイルをヘッダー付きで作成
+        try:
+            OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+            with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
+                               'レビュー日時', 'レビュー本文', 'レビュー要約', 'レビューGID'])
+            logging.info(f'新規ファイルを作成しました: {OUTPUT_CSV}')
+        except Exception as e:
+            logging.error(f'ファイル作成に失敗: {e}')
+            return [], set(), 100
+        
+        return [], set(), 100
+    
+    reviews = []
+    gid_set = set()
+    max_review_id = 100
+    
+    with open(OUTPUT_CSV, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        
+        has_facility_gid = '施設GID' in fieldnames if fieldnames else False
+        if not has_facility_gid:
+            logging.warning('既存レビューファイルに施設GID列がありません')
+        
+        for row in reader:
+            if not has_facility_gid:
+                row['施設GID'] = ''
+            reviews.append(row)
+            
+            gid = row.get('レビューGID', '') or ''
+            if gid and isinstance(gid, str):
+                gid_set.add(gid.strip())
+            
+            # 最大レビューIDを取得
+            try:
+                review_id_str = row.get('レビューID', '0') or '0'
+                if review_id_str and isinstance(review_id_str, str):
+                    review_id = int(review_id_str.strip())
+                    if review_id > max_review_id:
+                        max_review_id = review_id
+            except (ValueError, TypeError):
+                pass
+    
+    logging.info(f'既存レビュー: {len(reviews)}件')
+    logging.info(f'ユニークGID: {len(gid_set)}')
+    logging.info(f'最大レビューID: {max_review_id}')
+    return reviews, gid_set, max_review_id
+
+
+def extract_review_data_from_api(review_item: Dict, facility_id: str, facility_gid: str) -> Optional[Dict]:
+    """
+    Web Scraper APIから取得したレビューデータを抽出（公式レスポンス形式対応）
+    """
+    try:
+        # Web Scraper API の実際のレスポンスフィールド名に合わせる
+        # review_id: レビューID
+        review_id = (review_item.get('review_id') or '').strip()
+        
+        # reviewer_name: レビュワー名
+        reviewer_name = (review_item.get('reviewer_name') or '').strip()
+        
+        # review_rating: 評価（1-5）
+        rating = review_item.get('review_rating', '')
+        
+        # review_date: レビュー日時
+        timestamp = (review_item.get('review_date') or '').strip()
+        
+        # review: レビュー本文
+        text = (review_item.get('review') or '').strip()
+        
+        # その他の有用な情報
+        response_of_owner = (review_item.get('response_of_owner') or '').strip()
+        number_of_likes = review_item.get('number_of_likes', 0)
+        
+        return {
+            'review_id': review_id,
+            'review_gid': review_id,  # レビューGID（review_idと同じ）
+            'facility_id': facility_id,
+            'facility_gid': facility_gid,
+            'reviewer_name': reviewer_name,
+            'rating': rating,
+            'timestamp': timestamp,
+            'text': text,
+            'response_of_owner': response_of_owner,
+            'number_of_likes': number_of_likes
+        }
+    
+    except Exception as e:
+        logging.warning(f'レビューデータ抽出失敗: {e}')
+        return None
+
+
+def match_reviews_with_existing(fetched_reviews: List[Dict], existing_gid_set: set, next_review_id: int) -> tuple:
+    """
+    取得したレビューと既存のGIDセットを照合
+    """
+    new_reviews = []
+    skipped = 0
+    current_id = next_review_id
+    
+    for review in fetched_reviews:
+        review_gid = review.get('review_id', '').strip()
+        
+        if review_gid in existing_gid_set:
+            skipped += 1
+        else:
+            new_reviews.append({
+                'assigned_review_id': current_id,
+                'facility_id': review.get('facility_id', ''),
+                'facility_gid': review.get('facility_gid', ''),
+                'reviewer_name': review.get('reviewer_name', ''),
+                'rating': review.get('rating', ''),
+                'timestamp': review.get('timestamp', ''),
+                'text': review.get('text', ''),
+                'review_gid': review_gid
+            })
+            current_id += 1
+    
+    return new_reviews, skipped, current_id
+
+
+def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
+    """レビューをCSVファイルに保存"""
+    if not reviews:
+        return
+    
+    fieldnames = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
+                  'レビュー日時', 'レビュー本文', 'レビュー要約', 'レビューGID']
+    
+    csv_file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for review in reviews:
+            if 'assigned_review_id' in review:
+                # 新規レビュー
+                writer.writerow({
+                    'レビューID': str(review.get('assigned_review_id', '')).strip(),
+                    '施設ID': str(review.get('facility_id', '')).strip(),
+                    '施設GID': str(review.get('facility_gid', '')).strip(),
+                    'レビュワー評価': str(review.get('rating', '')).strip(),
+                    'レビュワー名': str(review.get('reviewer_name', '')).strip(),
+                    'レビュー日時': str(review.get('timestamp', '')).strip(),
+                    'レビュー本文': str(review.get('text', '')).strip(),
+                    'レビュー要約': '',  # 要約は空
+                    'レビューGID': str(review.get('review_gid', '')).strip()
+                })
+            else:
+                # 既存レビュー
+                writer.writerow({
+                    'レビューID': str(review.get('レビューID', '')).strip(),
+                    '施設ID': str(review.get('施設ID', '')).strip(),
+                    '施設GID': str(review.get('施設GID', '')).strip(),
+                    'レビュワー評価': str(review.get('レビュワー評価', '')).strip(),
+                    'レビュワー名': str(review.get('レビュワー名', '')).strip(),
+                    'レビュー日時': str(review.get('レビュー日時', '')).strip(),
+                    'レビュー本文': str(review.get('レビュー本文', '')).strip(),
+                    'レビュー要約': str(review.get('レビュー要約', '')).strip(),
+                    'レビューGID': str(review.get('レビューGID', '')).strip()
+                })
+
+
+def main():
+    """メイン処理"""
+    print('='*80)
+    print('dental_new.csv レビュー取得ツール (Web Scraper API)')
+    print('='*80)
+    
+    # ログ設定
+    setup_logging()
+    
+    # API認証情報チェック
+    if not API_TOKEN:
+        logging.error('❌ BRIGHTDATA_API_TOKEN environment variable not set')
+        sys.exit(1)
+    
+    logging.info(f'入力CSV: {INPUT_CSV}')
+    logging.info(f'出力CSV: {OUTPUT_CSV}')
+    if UPDATE_CSV:
+        logging.info(f'増分CSV: {UPDATE_CSV}')
+    logging.info(f'Dataset ID: {DATASET_ID}')
+    logging.info(f'Days back: {DAYS_BACK}')
+    logging.info(f'Batch size: {BATCH_SIZE}')
+    logging.info(f'処理範囲: 行{START_ROW}～{END_ROW if END_ROW else "最終行"}')
+    
+    # dental_new.csvを読み込み
+    entries = load_dental_csv()
+    if not entries:
+        logging.error('処理対象がありません')
+        sys.exit(1)
+    
+    # 既存レビューを読み込み
+    existing_reviews, existing_gid_set, max_review_id = load_existing_reviews()
+    next_review_id = max_review_id + 1
+    
+    # BrightData Web Scraper APIクライアント
+    client = BrightDataWebScraperReviews(API_TOKEN, DATASET_ID)
+    
+    # バッチに分割
+    batches = []
+    facility_map = {}  # URL -> 施設情報のマッピング
+    
+    for i in range(0, len(entries), BATCH_SIZE):
+        batch_entries = entries[i:i + BATCH_SIZE]
+        urls_with_params = []
+        
+        for entry in batch_entries:
+            url = entry['url']
+            # 公式ドキュメント準拠: url と days_limit を指定
+            payload = {
+                "url": url,
+                "days_limit": DAYS_BACK  # 公式では days_limit を使用
+            }
+            urls_with_params.append(payload)
+            facility_map[url] = entry
+        
+        batches.append(urls_with_params)
+    
+    logging.info(f'📦 {len(batches)}個のAPIチャンクを作成しました（1チャンク={BATCH_SIZE}件）')
+    logging.info(f'{"="*80}\n')
+    
+    # 統計情報
+    stats = {
+        'total_facilities': len(entries),
+        'total_fetched_reviews': 0,
+        'new_reviews': 0,
+        'skipped_reviews': 0,
+        'new_reviews_list': []
+    }
+    
+    # チャンクごとに処理
+    for batch_idx, urls_with_params in enumerate(batches, start=1):
+        logging.info(f'\n{"="*80}')
+        logging.info(f'APIチャンク {batch_idx}/{len(batches)} 処理中...')
+        logging.info(f'{"="*80}')
+        
+        try:
+            # APIからレビュー取得
+            reviews = client.process_batch(urls_with_params, batch_id=str(batch_idx))
+            
+            if not reviews:
+                logging.warning(f'❌ APIチャンク {batch_idx} でレビューが取得できませんでした')
+                continue
+            
+            logging.info(f'✅ APIチャンク {batch_idx}: {len(reviews)}件のレビューを取得')
+            
+            # レビューを施設別に分類
+            for review_item in reviews:
+                # エラーレスポンスの場合はスキップ
+                if review_item.get('error') or review_item.get('error_code'):
+                    continue
+                
+                # place_urlまたはurlキーで施設を特定（input.urlから取得）
+                input_data = review_item.get('input', {})
+                place_url = (
+                    input_data.get('url', '') or 
+                    review_item.get('place_url', '') or 
+                    review_item.get('url', '') or 
+                    review_item.get('query', {}).get('place_url', '')
+                )
+                
+                if not place_url or place_url not in facility_map:
+                    logging.warning(f'⚠️ レビューに対応する施設が見つかりません: {place_url}')
+                    continue
+                
+                facility = facility_map[place_url]
+                facility_id = facility['facility_id']
+                facility_gid = facility['gid']
+                
+                # レビューデータを抽出
+                review_data = extract_review_data_from_api(review_item, facility_id, facility_gid)
+                if not review_data:
+                    continue
+                
+                stats['total_fetched_reviews'] += 1
+                
+                # 既存のGIDと照合
+                review_gid = review_data.get('review_id', '')
+                if review_gid in existing_gid_set:
+                    stats['skipped_reviews'] += 1
+                else:
+                    new_review = {
+                        'assigned_review_id': next_review_id,
+                        'facility_id': facility_id,
+                        'facility_gid': facility_gid,
+                        'reviewer_name': review_data.get('reviewer_name', ''),
+                        'rating': review_data.get('rating', ''),
+                        'timestamp': review_data.get('timestamp', ''),
+                        'text': review_data.get('text', ''),
+                        'review_gid': review_gid
+                    }
+                    stats['new_reviews_list'].append(new_review)
+                    existing_gid_set.add(review_gid)
+                    stats['new_reviews'] += 1
+                    next_review_id += 1
+            
+            logging.info(f'📊 APIチャンク {batch_idx} 集計:')
+            logging.info(f'  新規レビュー: {stats["new_reviews"]}件（累計）')
+            logging.info(f'  スキップ: {stats["skipped_reviews"]}件（累計）')
+            
+            # チャンクごとに保存
+            if stats['new_reviews_list']:
+                all_reviews = existing_reviews + stats['new_reviews_list']
+                save_reviews_to_csv(OUTPUT_CSV, all_reviews)
+                logging.info(f'💾 途中保存完了: {len(all_reviews)}件')
+            
+        except Exception as e:
+            logging.error(f'❌ APIチャンク {batch_idx} 処理エラー: {e}')
+            import traceback
+            traceback.print_exc()
+    
+    # 最終レポート
+    logging.info(f'\n{"="*80}')
+    logging.info('処理完了')
+    logging.info(f'{"="*80}')
+    logging.info(f'処理施設数: {stats["total_facilities"]}')
+    logging.info(f'取得レビュー総数: {stats["total_fetched_reviews"]}')
+    logging.info(f'新規レビュー: {stats["new_reviews"]}')
+    logging.info(f'スキップ（既存）: {stats["skipped_reviews"]}')
+    
+    if stats['total_fetched_reviews'] > 0:
+        new_rate = stats['new_reviews'] / stats['total_fetched_reviews'] * 100
+        logging.info(f'新規率: {new_rate:.1f}%')
+    
+    # 全レビューを保存
+    if stats['new_reviews_list'] or existing_reviews:
+        all_reviews = existing_reviews + stats['new_reviews_list']
+        save_reviews_to_csv(OUTPUT_CSV, all_reviews)
+        logging.info(f'\nレビューCSV保存: {OUTPUT_CSV}')
+        logging.info(f'  既存: {len(existing_reviews)}件')
+        logging.info(f'  新規: {len(stats["new_reviews_list"])}件')
+        logging.info(f'  合計: {len(all_reviews)}件')
+    
+    # 増分ファイル（新規レビューのみ）を保存
+    if UPDATE_CSV and stats['new_reviews_list']:
+        # UPDATE_CSVもPathオブジェクトになっているので安全
+        save_reviews_to_csv(UPDATE_CSV, stats['new_reviews_list'])
+        logging.info(f'\n増分CSV保存: {UPDATE_CSV}')
+        logging.info(f'  新規レビュー: {len(stats["new_reviews_list"])}件')
+    
+    logging.info(f'\n{"="*80}')
+
+
+if __name__ == '__main__':
+    try:
+        # 環境変数の検証
+        if not API_TOKEN:
+            print('❌ エラー: BRIGHTDATA_API_TOKEN環境変数が設定されていません', file=sys.stderr)
+            sys.exit(1)
+        
+        # INPUT_CSV は Path オブジェクトなので .exists() が使える
+        if not INPUT_CSV.exists():
+            print(f'❌ エラー: 入力CSVファイルが見つかりません: {INPUT_CSV}', file=sys.stderr)
+            sys.exit(1)
+        
+        # メイン処理実行
+        main()
+        
+    except KeyboardInterrupt:
+        print('\n⚠️ ユーザーによる中断', file=sys.stderr)
+        sys.exit(130)
+    
+    except Exception as e:
+        print(f'\n❌ 予期しないエラーが発生しました: {e}', file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
