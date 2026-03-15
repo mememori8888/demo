@@ -159,15 +159,15 @@ jobs:
                       else:
                           details = "FID file not found"
 
-                    elif workflow == "reviews_sequential":
-                      csv_file = params.get("csv_file", "results/dental_new.csv")
-                      if os.path.exists(csv_file):
-                        with open(csv_file, encoding="utf-8", errors="ignore") as f:
+              elif workflow == "reviews_sequential":
+                  csv_file = params.get("csv_file", "results/dental_new.csv")
+                  if os.path.exists(csv_file):
+                      with open(csv_file, encoding="utf-8", errors="ignore") as f:
                           n = max(sum(1 for _ in f) - 1, 0)
-                        requests = n
-                        details = f"{n} facilities * 1 dataset input"
-                      else:
-                        details = f"Input CSV not found: {csv_file}"
+                      requests = n
+                      details = f"{n} facilities * 1 dataset input"
+                  else:
+                      details = f"Input CSV not found: {csv_file}"
 
               elif workflow == "facility":
                   custom = params.get("custom_settings", {})
@@ -362,33 +362,33 @@ jobs:
                   if not params.get(key):
                       errors.append(f"reviews_auto_batch では {key} が必須です。")
 
-            if workflow == "reviews_sequential":
+          if workflow == "reviews_sequential":
               csv_file = params.get("csv_file")
               output_file = params.get("output_file")
 
               if not csv_file:
-                errors.append("reviews_sequential では csv_file が必須です。")
+                  errors.append("reviews_sequential では csv_file が必須です。")
               elif not os.path.exists(csv_file):
-                errors.append(f"指定された csv_file が存在しません: {csv_file}")
+                  errors.append(f"指定された csv_file が存在しません: {csv_file}")
 
               if not output_file:
-                errors.append("reviews_sequential では output_file が必須です。")
+                  errors.append("reviews_sequential では output_file が必須です。")
 
               for key in ["days_back", "start_from_batch", "rows_per_batch", "batch_wait", "api_batch_size", "max_wait_minutes"]:
-                value = params.get(key)
-                if value in (None, ""):
-                  errors.append(f"reviews_sequential では {key} が必須です。")
-                else:
-                  try:
-                    if int(str(value)) < 1:
-                      errors.append(f"{key} は1以上の整数を指定してください。")
-                  except ValueError:
-                    errors.append(f"{key} は整数を指定してください。")
+                  value = params.get(key)
+                  if value in (None, ""):
+                      errors.append(f"reviews_sequential では {key} が必須です。")
+                  else:
+                      try:
+                          if int(str(value)) < 1:
+                              errors.append(f"{key} は1以上の整数を指定してください。")
+                      except ValueError:
+                          errors.append(f"{key} は整数を指定してください。")
 
               if not params.get("dataset_id"):
-                errors.append("reviews_sequential では dataset_id が必須です。")
+                  errors.append("reviews_sequential では dataset_id が必須です。")
               if not params.get("skip_column"):
-                errors.append("reviews_sequential では skip_column が必須です。")
+                  errors.append("reviews_sequential では skip_column が必須です。")
 
           should_execute = "true" if not errors else "false"
           reason = "バリデーションOK" if not errors else "\n".join(errors)
