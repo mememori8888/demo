@@ -64,6 +64,69 @@ on:
         description: '【レポート用】何日間の増減を分析するか (空欄=全期間)'
         required: false
         default: '10'
+  workflow_call:
+    inputs:
+      csv_file:
+        required: true
+        type: string
+        default: 'results/dental_new.csv'
+      output_file:
+        required: true
+        type: string
+        default: 'results/dental_new_reviews.csv'
+      merge_to_all_regions:
+        required: false
+        type: boolean
+        default: true
+      all_regions_file:
+        required: false
+        type: string
+        default: 'results/dental_new_reviews_all_regions.csv'
+      days_back:
+        required: true
+        type: string
+        default: '10'
+      start_from_batch:
+        required: false
+        type: string
+        default: '1'
+      rows_per_batch:
+        required: false
+        type: string
+        default: '500'
+      batch_wait:
+        required: false
+        type: string
+        default: '120'
+      api_batch_size:
+        required: false
+        type: string
+        default: '50'
+      max_wait_minutes:
+        required: false
+        type: string
+        default: '90'
+      dataset_id:
+        required: false
+        type: string
+        default: 'gd_luzfs1dn2oa0teb81'
+      skip_column:
+        required: false
+        type: string
+        default: 'web'
+      generate_report:
+        required: false
+        type: boolean
+        default: true
+      report_days:
+        required: false
+        type: string
+        default: '10'
+    secrets:
+      BRIGHTDATA_API_TOKEN:
+        required: false
+      BRIGHTDATA_ZONE_NAME:
+        required: false
 
 jobs:
   # レビュー取得ジョブ（並列実行可能）
@@ -111,31 +174,31 @@ jobs:
           echo "✅ APIトークン: 設定済み"
 
           # 入力CSVファイルの確認
-          if [ ! -f "${{ github.event.inputs.csv_file }}" ]; then
-            echo "❌ エラー: 入力CSVファイルが見つかりません: ${{ github.event.inputs.csv_file }}"
+          if [ ! -f "${{ inputs.csv_file }}" ]; then
+            echo "❌ エラー: 入力CSVファイルが見つかりません: ${{ inputs.csv_file }}"
             exit 1
           fi
-          echo "✅ 入力CSV: ${{ github.event.inputs.csv_file }}"
+          echo "✅ 入力CSV: ${{ inputs.csv_file }}"
 
           # 入力値のバリデーション（フェイルセーフ）
-          validate_positive_int "days_back" "${{ github.event.inputs.days_back }}"
-          validate_positive_int "start_from_batch" "${{ github.event.inputs.start_from_batch }}"
-          validate_positive_int "rows_per_batch" "${{ github.event.inputs.rows_per_batch }}"
-          validate_positive_int "batch_wait" "${{ github.event.inputs.batch_wait }}"
-          validate_positive_int "api_batch_size" "${{ github.event.inputs.api_batch_size }}"
-          validate_positive_int "max_wait_minutes" "${{ github.event.inputs.max_wait_minutes }}"
+          validate_positive_int "days_back" "${{ inputs.days_back }}"
+          validate_positive_int "start_from_batch" "${{ inputs.start_from_batch }}"
+          validate_positive_int "rows_per_batch" "${{ inputs.rows_per_batch }}"
+          validate_positive_int "batch_wait" "${{ inputs.batch_wait }}"
+          validate_positive_int "api_batch_size" "${{ inputs.api_batch_size }}"
+          validate_positive_int "max_wait_minutes" "${{ inputs.max_wait_minutes }}"
 
-          if [ -z "${{ github.event.inputs.dataset_id }}" ]; then
+          if [ -z "${{ inputs.dataset_id }}" ]; then
             echo "❌ エラー: dataset_id は空にできません"
             exit 1
           fi
-          if [ -z "${{ github.event.inputs.skip_column }}" ]; then
+          if [ -z "${{ inputs.skip_column }}" ]; then
             echo "❌ エラー: skip_column は空にできません"
             exit 1
           fi
 
           # 行数確認
-          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
+          TOTAL_ROWS=$(wc -l < "${{ inputs.csv_file }}" | xargs)
           echo "✅ 総行数: ${TOTAL_ROWS}行（ヘッダー含む）"
 
           # 出力ディレクトリの作成
@@ -213,7 +276,7 @@ jobs:
             }
 
             # すべての変更をステージング
-            git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+            git add "${{ inputs.output_file }}" 2>/dev/null || true
             git add results/reviews_batch_*.csv 2>/dev/null || true
             git add results/logs/*.log 2>/dev/null || true
 
@@ -286,7 +349,7 @@ jobs:
               fi
 
               # すべての変更をステージング
-              git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+              git add "${{ inputs.output_file }}" 2>/dev/null || true
               git add results/reviews_batch_*.csv 2>/dev/null || true
 
               if ! git diff --staged --quiet 2>/dev/null; then
@@ -339,18 +402,18 @@ jobs:
           TIMEOUT_WATCHER_PID=$!
 
           # CSVの総行数を取得
-          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
+          TOTAL_ROWS=$(wc -l < "${{ inputs.csv_file }}" | xargs)
           TOTAL_ROWS=$((TOTAL_ROWS - 1))  # ヘッダー除く
 
           # ▼▼▼ run_reviews_local_interactive.py の設定値 ▼▼▼
-          ROWS_PER_BATCH=${{ github.event.inputs.rows_per_batch }}
-          BATCH_WAIT=${{ github.event.inputs.batch_wait }}
-          API_BATCH_SIZE=${{ github.event.inputs.api_batch_size }}
-          MAX_WAIT_MINUTES=${{ github.event.inputs.max_wait_minutes }}
-          DATASET_ID="${{ github.event.inputs.dataset_id }}"
+          ROWS_PER_BATCH=${{ inputs.rows_per_batch }}
+          BATCH_WAIT=${{ inputs.batch_wait }}
+          API_BATCH_SIZE=${{ inputs.api_batch_size }}
+          MAX_WAIT_MINUTES=${{ inputs.max_wait_minutes }}
+          DATASET_ID="${{ inputs.dataset_id }}"
           # ▲▲▲ run_reviews_local_interactive.py の設定値 ▲▲▲
 
-          START_BATCH=${{ github.event.inputs.start_from_batch }}
+          START_BATCH=${{ inputs.start_from_batch }}
 
           TOTAL_BATCHES=$(( (TOTAL_ROWS + ROWS_PER_BATCH - 1) / ROWS_PER_BATCH ))
 
@@ -360,7 +423,7 @@ jobs:
           fi
 
           # skip_column入力値を取得
-          SKIP_COL="${{ github.event.inputs.skip_column }}"
+          SKIP_COL="${{ inputs.skip_column }}"
           if [ -z "$SKIP_COL" ]; then
             SKIP_COL="web"
           fi
@@ -374,7 +437,7 @@ jobs:
           echo "  - Dataset ID: ${DATASET_ID}"
           echo "  - API Batch Size: ${API_BATCH_SIZE}件/回"
           echo "  - API待機時間: ${MAX_WAIT_MINUTES}分"
-          echo "  - Days back: ${{ github.event.inputs.days_back }}"
+          echo "  - Days back: ${{ inputs.days_back }}"
           echo "  - Skip column: ${SKIP_COL}"
           echo "  - 💾 定期自動保存: 有効（30分間隔）"
           echo "  - ⏰ タイムアウト監視: 有効（345分で警告）"
@@ -413,11 +476,11 @@ jobs:
 
               if python run_reviews_local_interactive.py \
                 --non-interactive \
-                --input "${{ github.event.inputs.csv_file }}" \
-                --output "${{ github.event.inputs.output_file }}" \
+                --input "${{ inputs.csv_file }}" \
+                --output "${{ inputs.output_file }}" \
                 --start-row $START_ROW \
                 --end-row $END_ROW \
-                --days-back ${{ github.event.inputs.days_back }} \
+                --days-back ${{ inputs.days_back }} \
                 --batch-size ${API_BATCH_SIZE} \
                 --max-wait-minutes ${MAX_WAIT_MINUTES} \
                 --dataset-id "${DATASET_ID}" \
@@ -444,8 +507,8 @@ jobs:
             if acquire_git_lock 30; then
 
               # 出力ファイルが変更されていれば追加
-              if [ -f "${{ github.event.inputs.output_file }}" ]; then
-                git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+              if [ -f "${{ inputs.output_file }}" ]; then
+                git add "${{ inputs.output_file }}" 2>/dev/null || true
               fi
 
               # 増分ファイルも追加（存在する場合）
@@ -499,8 +562,8 @@ jobs:
                     git status
 
                     # CSVファイルのコンフリクトは自動解決（ours戦略）
-                    git checkout --ours "${{ github.event.inputs.output_file }}" 2>/dev/null || true
-                    git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
+                    git checkout --ours "${{ inputs.output_file }}" 2>/dev/null || true
+                    git add "${{ inputs.output_file }}" 2>/dev/null || true
 
                     # 増分CSVも同様
                     git checkout --ours "results/reviews_batch_${BATCH}.csv" 2>/dev/null || true
@@ -616,11 +679,11 @@ jobs:
           fi
 
           # 出力ファイルの確認
-          if [ -f "${{ github.event.inputs.output_file }}" ]; then
-            OUTPUT_LINES=$(wc -l < "${{ github.event.inputs.output_file }}" | xargs)
+          if [ -f "${{ inputs.output_file }}" ]; then
+            OUTPUT_LINES=$(wc -l < "${{ inputs.output_file }}" | xargs)
             OUTPUT_REVIEWS=$((OUTPUT_LINES - 1))
             echo "📄 出力レビュー数: ${OUTPUT_REVIEWS}件"
-            echo "📁 出力ファイル: ${{ github.event.inputs.output_file }}"
+            echo "📁 出力ファイル: ${{ inputs.output_file }}"
           fi
 
           # エラーがあった場合はログを表示
@@ -636,15 +699,15 @@ jobs:
           fi
 
       - name: Merge to All Regions File
-        if: github.event.inputs.merge_to_all_regions == 'true'
+        if: ${{ inputs.merge_to_all_regions }}
         run: |
           echo ""
           echo "=========================================="
           echo "🔄 全地域ファイルへのマージ処理"
           echo "=========================================="
 
-          ALL_REGIONS_FILE="${{ github.event.inputs.all_regions_file }}"
-          REGION_FILE="${{ github.event.inputs.output_file }}"
+          ALL_REGIONS_FILE="${{ inputs.all_regions_file }}"
+          REGION_FILE="${{ inputs.output_file }}"
 
           echo "地域別ファイル: ${REGION_FILE}"
           echo "統合先ファイル: ${ALL_REGIONS_FILE}"
@@ -772,7 +835,7 @@ jobs:
           echo "=========================================="
 
       - name: Generate Review Report
-        if: github.event.inputs.generate_report == 'true'
+        if: ${{ inputs.generate_report }}
         run: |
           echo ""
           echo "=========================================="
@@ -786,13 +849,13 @@ jobs:
           fi
 
           # レポート生成
-          if [ -f "${{ github.event.inputs.output_file }}" ]; then
-            REPORT_ARGS="--reviews ${{ github.event.inputs.output_file }} --facilities ${{ github.event.inputs.csv_file }}"
+          if [ -f "${{ inputs.output_file }}" ]; then
+            REPORT_ARGS="--reviews ${{ inputs.output_file }} --facilities ${{ inputs.csv_file }}"
 
             # 期間指定がある場合
-            if [ -n "${{ github.event.inputs.report_days }}" ]; then
-              REPORT_ARGS="$REPORT_ARGS --days ${{ github.event.inputs.report_days }}"
-              echo "期間: 過去${{ github.event.inputs.report_days }}日間"
+            if [ -n "${{ inputs.report_days }}" ]; then
+              REPORT_ARGS="$REPORT_ARGS --days ${{ inputs.report_days }}"
+              echo "期間: 過去${{ inputs.report_days }}日間"
             else
               echo "期間: 全期間"
             fi
@@ -830,7 +893,7 @@ jobs:
               fi
             fi
           else
-            echo "⚠️ レビューファイルが見つかりません: ${{ github.event.inputs.output_file }}"
+            echo "⚠️ レビューファイルが見つかりません: ${{ inputs.output_file }}"
           fi
 
       - name: Upload log files
@@ -850,7 +913,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: reviews-output-${{ github.run_number }}
-          path: ${{ github.event.inputs.output_file }}
+          path: ${{ inputs.output_file }}
           if-no-files-found: ignore
           retention-days: 7
 
@@ -878,18 +941,18 @@ jobs:
           echo "## 処理完了" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 設定" >> $GITHUB_STEP_SUMMARY
-          echo "- 入力CSV: \`${{ github.event.inputs.csv_file }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 出力CSV: \`${{ github.event.inputs.output_file }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Days back: ${{ github.event.inputs.days_back }}日" >> $GITHUB_STEP_SUMMARY
-          echo "- 開始バッチ: ${{ github.event.inputs.start_from_batch }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 1バッチあたりの行数: ${{ github.event.inputs.rows_per_batch }}" >> $GITHUB_STEP_SUMMARY
-          echo "- バッチ間待機: ${{ github.event.inputs.batch_wait }}秒" >> $GITHUB_STEP_SUMMARY
-          echo "- API Batch Size: ${{ github.event.inputs.api_batch_size }}件/回" >> $GITHUB_STEP_SUMMARY
-          echo "- Skip column: \`${{ github.event.inputs.skip_column }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 入力CSV: \`${{ inputs.csv_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 出力CSV: \`${{ inputs.output_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Days back: ${{ inputs.days_back }}日" >> $GITHUB_STEP_SUMMARY
+          echo "- 開始バッチ: ${{ inputs.start_from_batch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 1バッチあたりの行数: ${{ inputs.rows_per_batch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- バッチ間待機: ${{ inputs.batch_wait }}秒" >> $GITHUB_STEP_SUMMARY
+          echo "- API Batch Size: ${{ inputs.api_batch_size }}件/回" >> $GITHUB_STEP_SUMMARY
+          echo "- Skip column: \`${{ inputs.skip_column }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ -f "${{ github.event.inputs.output_file }}" ]; then
-            TOTAL_REVIEWS=$(wc -l < "${{ github.event.inputs.output_file }}" | xargs)
+          if [ -f "${{ inputs.output_file }}" ]; then
+            TOTAL_REVIEWS=$(wc -l < "${{ inputs.output_file }}" | xargs)
             TOTAL_REVIEWS=$((TOTAL_REVIEWS - 1))
             echo "### 結果" >> $GITHUB_STEP_SUMMARY
             echo "- **総レビュー数**: ${TOTAL_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
@@ -906,11 +969,11 @@ jobs:
           echo "> 💡 **データ復旧手順**: Artifactをダウンロード → ローカルで解凍 → リポジトリにpush" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ github.event.inputs.generate_report }}" = "true" ]; then
+          if [ "${{ inputs.generate_report }}" = "true" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### 📊 レポート" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${{ github.event.inputs.report_days }}" ]; then
-              echo "- 分析期間: 過去${{ github.event.inputs.report_days }}日間" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ inputs.report_days }}" ]; then
+              echo "- 分析期間: 過去${{ inputs.report_days }}日間" >> $GITHUB_STEP_SUMMARY
             else
               echo "- 分析期間: 全期間" >> $GITHUB_STEP_SUMMARY
             fi

@@ -47,6 +47,44 @@ const PRESETS = {
             }
         }
     },
+    reviews_sequential: {
+        'dental_new_default': {
+            name: '⚡ 新仕様・標準実行',
+            description: 'dental_new.csv を 500 行ずつ逐次処理',
+            params: {
+                sequential_csv_file: 'results/dental_new.csv',
+                sequential_output_file: 'results/dental_new_reviews.csv',
+                sequential_all_regions_file: 'results/dental_new_reviews_all_regions.csv',
+                sequential_days_back: '10',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_report_days: '10'
+            }
+        },
+        'dental_new_hokkaido': {
+            name: '🦷 北海道レビュー取得',
+            description: '北海道の dental_new 系 CSV を逐次処理',
+            params: {
+                sequential_csv_file: 'results/dental_new_hokkaido.csv',
+                sequential_output_file: 'results/dental_new_reviews_hokkaido.csv',
+                sequential_all_regions_file: 'results/dental_new_reviews_all_regions.csv',
+                sequential_days_back: '10',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_report_days: '10'
+            }
+        }
+    },
     reviews_auto_batch: {
         'dental_80k': {
             name: '🦷 歯科レビュー・8万件自動分割',
@@ -185,6 +223,11 @@ async function loadFileOptions() {
         
         // Reviews workflow用のドロップダウンを設定
         populateDropdown('custom_review_file', reviewFiles, 'results', true);
+
+        // Reviews Sequential workflow用のドロップダウンを設定
+        populateDropdown('sequential_csv_file', resultsCsvFiles, 'results', false);
+        populateDropdown('sequential_output_file', reviewFiles, 'results', true);
+        populateDropdown('sequential_all_regions_file', reviewFiles, 'results', true);
         
         // Reviews Auto-Batch workflow用のドロップダウンを設定
         populateDropdown('auto_batch_fid_file', fidFiles, 'results', false);
@@ -335,6 +378,56 @@ function validateFormEnhanced() {
             errors.push('並列実行数（バッチ内）は5〜20の範囲で指定してください');
         }
     }
+
+    if (currentWorkflow === 'reviews_sequential') {
+        const csvFile = document.getElementById('sequential_csv_file')?.value || '';
+        const outputFile = document.getElementById('sequential_output_file')?.value || '';
+        const outputFileNew = document.getElementById('sequential_output_file_new')?.value.trim() || '';
+        const allRegionsFile = document.getElementById('sequential_all_regions_file')?.value || '';
+        const allRegionsFileNew = document.getElementById('sequential_all_regions_file_new')?.value.trim() || '';
+        const daysBack = parseInt(document.getElementById('sequential_days_back')?.value || '0');
+        const startFromBatch = parseInt(document.getElementById('sequential_start_from_batch')?.value || '0');
+        const rowsPerBatch = parseInt(document.getElementById('sequential_rows_per_batch')?.value || '0');
+        const batchWait = parseInt(document.getElementById('sequential_batch_wait')?.value || '0');
+        const apiBatchSize = parseInt(document.getElementById('sequential_api_batch_size')?.value || '0');
+        const maxWaitMinutes = parseInt(document.getElementById('sequential_max_wait_minutes')?.value || '0');
+        const datasetId = document.getElementById('sequential_dataset_id')?.value.trim() || '';
+        const skipColumn = document.getElementById('sequential_skip_column')?.value.trim() || '';
+
+        if (!csvFile) {
+            errors.push('入力CSVファイルを選択してください');
+        }
+        if (!outputFile || (outputFile === '__NEW_FILE__' && !outputFileNew)) {
+            errors.push('出力レビューCSVを指定してください');
+        }
+        if (allRegionsFile === '__NEW_FILE__' && !allRegionsFileNew) {
+            errors.push('新しい統合ファイル名を入力してください');
+        }
+        if (!Number.isInteger(daysBack) || daysBack < 1) {
+            errors.push('days_back は1以上の整数を指定してください');
+        }
+        if (!Number.isInteger(startFromBatch) || startFromBatch < 1) {
+            errors.push('start_from_batch は1以上の整数を指定してください');
+        }
+        if (!Number.isInteger(rowsPerBatch) || rowsPerBatch < 1) {
+            errors.push('rows_per_batch は1以上の整数を指定してください');
+        }
+        if (!Number.isInteger(batchWait) || batchWait < 1) {
+            errors.push('batch_wait は1以上の整数を指定してください');
+        }
+        if (!Number.isInteger(apiBatchSize) || apiBatchSize < 1) {
+            errors.push('api_batch_size は1以上の整数を指定してください');
+        }
+        if (!Number.isInteger(maxWaitMinutes) || maxWaitMinutes < 1) {
+            errors.push('max_wait_minutes は1以上の整数を指定してください');
+        }
+        if (!datasetId) {
+            errors.push('dataset_id を入力してください');
+        }
+        if (!skipColumn) {
+            errors.push('skip_column を入力してください');
+        }
+    }
     
     if (errors.length > 0) {
         alert('❌ 入力エラー:\n\n' + errors.join('\n'));
@@ -394,6 +487,32 @@ function getFormData() {
             data.process_count = document.getElementById('process_count').value.trim();
             data.workers = document.getElementById('reviews_workers').value;
             data.custom_settings = Object.keys(customSettings).length > 0 ? customSettings : null;
+            break;
+
+        case 'reviews_sequential':
+            const sequentialOutputFile = document.getElementById('sequential_output_file')?.value;
+            const sequentialOutputFileNew = document.getElementById('sequential_output_file_new')?.value.trim();
+            const sequentialAllRegionsFile = document.getElementById('sequential_all_regions_file')?.value;
+            const sequentialAllRegionsFileNew = document.getElementById('sequential_all_regions_file_new')?.value.trim();
+
+            data.csv_file = document.getElementById('sequential_csv_file').value;
+            data.output_file = sequentialOutputFile === '__NEW_FILE__'
+                ? (sequentialOutputFileNew.startsWith('results/') ? sequentialOutputFileNew : `results/${sequentialOutputFileNew}`)
+                : sequentialOutputFile;
+            data.merge_to_all_regions = document.getElementById('sequential_merge_to_all_regions').checked;
+            data.all_regions_file = sequentialAllRegionsFile === '__NEW_FILE__'
+                ? (sequentialAllRegionsFileNew.startsWith('results/') ? sequentialAllRegionsFileNew : `results/${sequentialAllRegionsFileNew}`)
+                : (sequentialAllRegionsFile || 'results/dental_new_reviews_all_regions.csv');
+            data.days_back = document.getElementById('sequential_days_back').value;
+            data.start_from_batch = document.getElementById('sequential_start_from_batch').value;
+            data.rows_per_batch = document.getElementById('sequential_rows_per_batch').value;
+            data.batch_wait = document.getElementById('sequential_batch_wait').value;
+            data.api_batch_size = document.getElementById('sequential_api_batch_size').value;
+            data.max_wait_minutes = document.getElementById('sequential_max_wait_minutes').value;
+            data.dataset_id = document.getElementById('sequential_dataset_id').value.trim();
+            data.skip_column = document.getElementById('sequential_skip_column').value.trim();
+            data.generate_report = document.getElementById('sequential_generate_report').checked;
+            data.report_days = document.getElementById('sequential_report_days').value.trim();
             break;
             
         case 'reviews_auto_batch':
@@ -468,6 +587,14 @@ function validateForm() {
             }
         }
     }
+
+    if (currentWorkflow === 'reviews_sequential') {
+        const reportDays = document.getElementById('sequential_report_days')?.value;
+        if (reportDays && parseInt(reportDays) < 1) {
+            alert('⚠️ report_days は1以上を指定してください');
+            return false;
+        }
+    }
     
     return true;
 }
@@ -476,6 +603,7 @@ function validateForm() {
 function generateIssueBody(data) {
     const commandMap = {
         'reviews': '/run-reviews',
+        'reviews_sequential': '/run-reviews-sequential',
         'reviews_auto_batch': '/run-reviews-auto-batch',
         'facility': '/run-facility'
     };
@@ -506,6 +634,26 @@ function generateIssueBody(data) {
                 Object.entries(data.custom_settings).forEach(([key, value]) => {
                     body += `- **${key}**: \`${value}\`\n`;
                 });
+            }
+            break;
+
+        case 'reviews_sequential':
+            body += `### ⚡ レビュー取得・新仕様逐次実行\n\n`;
+            body += `- **入力CSV**: \`${data.csv_file}\`\n`;
+            body += `- **出力CSV**: \`${data.output_file}\`\n`;
+            body += `- **Days back**: ${data.days_back}日\n`;
+            body += `- **開始バッチ**: ${data.start_from_batch}\n`;
+            body += `- **1バッチ行数**: ${data.rows_per_batch}\n`;
+            body += `- **バッチ間待機**: ${data.batch_wait}秒\n`;
+            body += `- **API Batch Size**: ${data.api_batch_size}\n`;
+            body += `- **待機時間上限**: ${data.max_wait_minutes}分\n`;
+            body += `- **Dataset ID**: \`${data.dataset_id}\`\n`;
+            body += `- **Skip column**: \`${data.skip_column}\`\n`;
+            body += `- **全地域マージ**: ${data.merge_to_all_regions ? '有効' : '無効'}\n`;
+            body += `- **統合先**: \`${data.all_regions_file}\`\n`;
+            body += `- **レポート生成**: ${data.generate_report ? '有効' : '無効'}\n`;
+            if (data.report_days) {
+                body += `- **レポート日数**: ${data.report_days}日\n`;
             }
             break;
             
@@ -598,6 +746,7 @@ function openIssue() {
     
     const workflowNames = {
         'reviews': 'Reviews Job',
+        'reviews_sequential': 'Reviews Sequential Job',
         'reviews_auto_batch': 'Reviews Auto-Batch Job',
         'facility': 'Facility Job'
     };
@@ -672,6 +821,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     document.getElementById('custom_review_file')?.addEventListener('change', function() {
         toggleNewFileInput('custom_review_file', 'custom_review_file_new');
+    });
+    document.getElementById('sequential_output_file')?.addEventListener('change', function() {
+        toggleNewFileInput('sequential_output_file', 'sequential_output_file_new');
+    });
+    document.getElementById('sequential_all_regions_file')?.addEventListener('change', function() {
+        toggleNewFileInput('sequential_all_regions_file', 'sequential_all_regions_file_new');
     });
     document.getElementById('facility_custom_address_csv')?.addEventListener('change', function() {
         toggleNewFileInput('facility_custom_address_csv', 'facility_custom_address_csv_new');

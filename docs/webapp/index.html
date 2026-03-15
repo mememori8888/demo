@@ -21,6 +21,7 @@
                 <select id="workflow_type" required>
                     <option value="">選択してください</option>
                     <option value="reviews">📝 レビュー取得 (Reviews)</option>
+                    <option value="reviews_sequential">⚡ レビュー取得・新仕様逐次実行 (Reviews Sequential)</option>
                     <option value="reviews_auto_batch">🚀 レビュー取得・自動分割 (Reviews Auto-Batch)</option>
                     <option value="facility">🏢 施設データ取得 (Facility)</option>
                 </select>
@@ -148,6 +149,130 @@
                         <p style="margin-bottom: 0; margin-top: 10px; font-size: 0.9em; color: #e65100;">
                             ⚠️ 並列数を増やすとAPI負荷も増加します
                         </p>
+                    </div>
+                </div>
+
+                <!-- Reviews Sequential Workflow -->
+                <div id="form_reviews_sequential" class="workflow-form" style="display: none;">
+                    <h3>⚡ レビュー取得・新仕様逐次実行</h3>
+                    <p class="section-description">新仕様の Web Scraper API を使って、CSV を安全に逐次バッチ実行します</p>
+
+                    <div class="form-section">
+                        <h3>📝 ファイル設定</h3>
+
+                        <div class="form-group">
+                            <label for="sequential_csv_file">入力CSVファイル *</label>
+                            <select id="sequential_csv_file" required>
+                                <option value="">選択してください</option>
+                            </select>
+                            <small>施設CSV。GoogleMap 列と skip_column で指定する列を含む必要があります</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_output_file">出力レビューCSV *</label>
+                            <select id="sequential_output_file" required>
+                                <option value="">選択してください</option>
+                            </select>
+                            <small>レビューの保存先。既存ファイル選択または新規作成が可能です</small>
+                        </div>
+
+                        <div class="form-group" id="sequential_output_file_new_container" style="display: none;">
+                            <label for="sequential_output_file_new">新しい出力ファイル名を入力</label>
+                            <input type="text" id="sequential_output_file_new" placeholder="例: dental_new_reviews_hokkaido.csv">
+                            <small>拡張子 .csv を含めて入力してください。results/ は自動補完されます</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_all_regions_file">全地域統合ファイル</label>
+                            <select id="sequential_all_regions_file">
+                                <option value="">（デフォルト: results/dental_new_reviews_all_regions.csv）</option>
+                            </select>
+                            <small>merge_to_all_regions が有効なときの統合先です</small>
+                        </div>
+
+                        <div class="form-group" id="sequential_all_regions_file_new_container" style="display: none;">
+                            <label for="sequential_all_regions_file_new">新しい統合ファイル名を入力</label>
+                            <input type="text" id="sequential_all_regions_file_new" placeholder="例: dental_new_reviews_all_regions.csv">
+                            <small>拡張子 .csv を含めて入力してください。results/ は自動補完されます</small>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>⚙️ 実行設定</h3>
+
+                        <div class="form-group">
+                            <label for="sequential_days_back">days_back *</label>
+                            <input type="number" id="sequential_days_back" value="10" min="1" required>
+                            <small>何日前までのレビューを取得するか</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_start_from_batch">start_from_batch</label>
+                            <input type="number" id="sequential_start_from_batch" value="1" min="1">
+                            <small>途中再開時の開始バッチ番号</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_rows_per_batch">rows_per_batch *</label>
+                            <input type="number" id="sequential_rows_per_batch" value="500" min="1" required>
+                            <small>1バッチあたりの施設行数</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_batch_wait">batch_wait *</label>
+                            <input type="number" id="sequential_batch_wait" value="120" min="1" required>
+                            <small>バッチ間待機秒数</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_api_batch_size">api_batch_size *</label>
+                            <input type="number" id="sequential_api_batch_size" value="50" min="1" required>
+                            <small>API に1回で渡す施設件数</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_max_wait_minutes">max_wait_minutes *</label>
+                            <input type="number" id="sequential_max_wait_minutes" value="90" min="1" required>
+                            <small>BrightData スナップショット待機時間（分）</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_dataset_id">dataset_id *</label>
+                            <input type="text" id="sequential_dataset_id" value="gd_luzfs1dn2oa0teb81" required>
+                            <small>BrightData Dataset ID</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_skip_column">skip_column *</label>
+                            <input type="text" id="sequential_skip_column" value="web" required>
+                            <small>この列が空の行は処理しません</small>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>📊 後処理</h3>
+
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="sequential_merge_to_all_regions" checked>
+                                全地域ファイルへマージする
+                            </label>
+                            <small>完了後に地域別ファイルを統合先ファイルへマージします</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="sequential_generate_report" checked>
+                                レポート生成を試行する
+                            </label>
+                            <small>generate_review_report.py が存在する場合のみ実行されます</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_report_days">report_days</label>
+                            <input type="number" id="sequential_report_days" value="10" min="1">
+                            <small>空欄で全期間。レポート生成時のみ使用します</small>
+                        </div>
                     </div>
                 </div>
 
