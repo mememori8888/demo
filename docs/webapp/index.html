@@ -181,20 +181,6 @@
                             <input type="text" id="sequential_output_file_new" placeholder="例: dental_new_reviews_hokkaido.csv">
                             <small>拡張子 .csv を含めて入力してください。results/ は自動補完されます</small>
                         </div>
-
-                        <div class="form-group">
-                            <label for="sequential_all_regions_file">全地域統合ファイル</label>
-                            <select id="sequential_all_regions_file">
-                                <option value="">（デフォルト: results/dental_new_reviews_all_regions.csv）</option>
-                            </select>
-                            <small>merge_to_all_regions が有効なときの統合先です</small>
-                        </div>
-
-                        <div class="form-group" id="sequential_all_regions_file_new_container" style="display: none;">
-                            <label for="sequential_all_regions_file_new">新しい統合ファイル名を入力</label>
-                            <input type="text" id="sequential_all_regions_file_new" placeholder="例: dental_new_reviews_all_regions.csv">
-                            <small>拡張子 .csv を含めて入力してください。results/ は自動補完されます</small>
-                        </div>
                     </div>
 
                     <div class="form-section">
@@ -251,14 +237,6 @@
 
                     <div class="form-section">
                         <h3>📊 後処理</h3>
-
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="sequential_merge_to_all_regions" checked>
-                                全地域ファイルへマージする
-                            </label>
-                            <small>完了後に地域別ファイルを統合先ファイルへマージします</small>
-                        </div>
 
                         <div class="form-group">
                             <label>

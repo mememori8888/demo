@@ -11,6 +11,85 @@ let fileCache = {
     results: []
 };
 
+function inferSettingsPurposes(filename) {
+    const lowerName = filename.toLowerCase();
+    const purposes = [];
+
+    if (filename.toLowerCase().endsWith('.csv')) {
+        purposes.push('settings_csv');
+        if (lowerName.includes('address') || lowerName.includes('adress')) {
+            purposes.push('address_input');
+        }
+        if (lowerName.includes('exclude')) {
+            purposes.push('exclude_gids');
+        }
+    }
+
+    if (filename.toLowerCase().endsWith('.json')) {
+        purposes.push('settings_json');
+        if (lowerName.includes('settings')) {
+            purposes.push('config');
+        }
+    }
+
+    return purposes;
+}
+
+function inferResultsPurposes(filename) {
+    const lowerName = filename.toLowerCase();
+    const purposes = [];
+    const sequentialExcludedKeywords = ['review', 'batch', 'report', 'fid', 'heatmap', 'duplicate', 'analysis', 'log', 'error', 'summary'];
+    const facilityExcludedKeywords = ['review', 'batch', 'report', 'fid', 'heatmap', 'duplicate', 'analysis', 'log', 'error', 'summary', 'add_'];
+
+    if (filename.toLowerCase().endsWith('.csv')) {
+        purposes.push('results_csv');
+    }
+    if (lowerName.includes('review')) {
+        purposes.push('review_output');
+    }
+    if (lowerName.includes('fid') || lowerName.includes('add_data')) {
+        purposes.push('fid_input');
+    }
+    if (lowerName.includes('add_data')) {
+        purposes.push('update_facility_output');
+    }
+    if (lowerName.includes('add_review')) {
+        purposes.push('update_review_output');
+    }
+    if (!sequentialExcludedKeywords.some(keyword => lowerName.includes(keyword))) {
+        purposes.push('sequential_input');
+    }
+    if (!facilityExcludedKeywords.some(keyword => lowerName.includes(keyword))) {
+        purposes.push('facility_output');
+    }
+
+    return [...new Set(purposes)];
+}
+
+function normalizeFileEntries(entries, basePath, inferPurposes) {
+    return (entries || []).map(entry => {
+        if (typeof entry === 'string') {
+            return {
+                name: entry,
+                path: `${basePath}/${entry}`,
+                extension: entry.includes('.') ? `.${entry.split('.').pop().toLowerCase()}` : '',
+                purposes: inferPurposes(entry)
+            };
+        }
+
+        return {
+            name: entry.name,
+            path: entry.path || `${basePath}/${entry.name}`,
+            extension: entry.extension || (entry.name.includes('.') ? `.${entry.name.split('.').pop().toLowerCase()}` : ''),
+            purposes: Array.isArray(entry.purposes) ? entry.purposes : inferPurposes(entry.name)
+        };
+    });
+}
+
+function hasPurpose(entry, purpose) {
+    return Array.isArray(entry.purposes) && entry.purposes.includes(purpose);
+}
+
 // プリセット設定
 const PRESETS = {
     facility: {
@@ -54,7 +133,6 @@ const PRESETS = {
             params: {
                 sequential_csv_file: 'results/dental_new.csv',
                 sequential_output_file: 'results/dental_new_reviews.csv',
-                sequential_all_regions_file: 'results/dental_new_reviews_all_regions.csv',
                 sequential_days_back: '10',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
@@ -72,7 +150,6 @@ const PRESETS = {
             params: {
                 sequential_csv_file: 'results/dental_new_hokkaido.csv',
                 sequential_output_file: 'results/dental_new_reviews_hokkaido.csv',
-                sequential_all_regions_file: 'results/dental_new_reviews_all_regions.csv',
                 sequential_days_back: '10',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
@@ -167,6 +244,83 @@ function populateDropdown(selectId, files, pathPrefix = '', allowNew = true) {
     });
 }
 
+function getSequentialInputFiles(resultEntries) {
+    return resultEntries
+        .filter(entry => hasPurpose(entry, 'sequential_input'))
+        .map(entry => entry.name);
+}
+
+function buildSequentialOutputCandidates(selectedInputPath = '') {
+    const existingReviewFiles = fileCache.results
+        .filter(entry => hasPurpose(entry, 'review_output'))
+        .map(entry => entry.name);
+
+    const candidates = [];
+    const seen = new Set();
+
+    const pushCandidate = (value, label) => {
+        if (!value || seen.has(value)) return;
+        seen.add(value);
+        candidates.push({ value, label });
+    };
+
+    if (selectedInputPath) {
+        const inputFilename = selectedInputPath.split('/').pop() || '';
+        let suggestedFilename = inputFilename.replace(/\.csv$/i, '_reviews.csv');
+
+        // *_new.csv は *_new_reviews.csv の形にして読みやすくする
+        if (/_new\.csv$/i.test(inputFilename)) {
+            suggestedFilename = inputFilename.replace(/_new\.csv$/i, '_new_reviews.csv');
+        }
+
+        if (suggestedFilename && suggestedFilename !== inputFilename) {
+            pushCandidate(`results/${suggestedFilename}`, `✨ 推奨: ${suggestedFilename}`);
+        }
+    }
+
+    existingReviewFiles.forEach(filename => {
+        pushCandidate(`results/${filename}`, filename);
+    });
+
+    return candidates;
+}
+
+function refreshSequentialOutputOptions() {
+    const outputSelect = document.getElementById('sequential_output_file');
+    const inputSelect = document.getElementById('sequential_csv_file');
+    if (!outputSelect || !inputSelect) return;
+
+    const previousValue = outputSelect.value;
+    const selectedInput = inputSelect.value;
+    const candidates = buildSequentialOutputCandidates(selectedInput);
+
+    while (outputSelect.options.length > 1) {
+        outputSelect.remove(1);
+    }
+
+    const newOption = document.createElement('option');
+    newOption.value = '__NEW_FILE__';
+    newOption.textContent = '📝 新規ファイルを作成';
+    outputSelect.appendChild(newOption);
+
+    candidates.forEach(candidate => {
+        const option = document.createElement('option');
+        option.value = candidate.value;
+        option.textContent = candidate.label;
+        outputSelect.appendChild(option);
+    });
+
+    if (previousValue && Array.from(outputSelect.options).some(option => option.value === previousValue)) {
+        outputSelect.value = previousValue;
+    } else if (candidates.length > 0) {
+        outputSelect.value = candidates[0].value;
+    } else {
+        outputSelect.selectedIndex = 0;
+    }
+
+    toggleNewFileInput('sequential_output_file', 'sequential_output_file_new');
+}
+
 // ファイル一覧を読み込み
 async function loadFileOptions() {
     try {
@@ -175,60 +329,56 @@ async function loadFileOptions() {
         const response = await fetch('./files.json?t=' + new Date().getTime());
         if (response.ok) {
             const filesData = await response.json();
-            fileCache.settings = filesData.settings || [];
-            fileCache.results = filesData.results || [];
+            const settingsEntries = filesData.settings || filesData.settings_csv || [];
+            const resultEntries = filesData.results || [];
+            fileCache.settings = normalizeFileEntries(settingsEntries, 'settings', inferSettingsPurposes);
+            fileCache.results = normalizeFileEntries(resultEntries, 'results', inferResultsPurposes);
         } else {
             // フォールバック: GitHub APIから直接取得
             console.log('files.json not found, falling back to GitHub API');
-            fileCache.settings = await fetchGitHubFiles('settings');
-            fileCache.results = await fetchGitHubFiles('results');
+            fileCache.settings = normalizeFileEntries(await fetchGitHubFiles('settings'), 'settings', inferSettingsPurposes);
+            fileCache.results = normalizeFileEntries(await fetchGitHubFiles('results'), 'results', inferResultsPurposes);
         }
         
         // CSVファイルのみフィルタ
-        const settingsCsvFiles = fileCache.settings.filter(f => f.endsWith('.csv'));
-        const resultsCsvFiles = fileCache.results.filter(f => f.endsWith('.csv'));
+        const settingsCsvFiles = fileCache.settings.filter(entry => entry.extension === '.csv').map(entry => entry.name);
+        const resultsCsvFiles = fileCache.results.filter(entry => entry.extension === '.csv').map(entry => entry.name);
         
         // 住所CSVファイル (settings/*.csv)
-        populateDropdown('custom_address_csv', settingsCsvFiles, 'settings');
+        const addressFiles = fileCache.settings.filter(entry => hasPurpose(entry, 'address_input')).map(entry => entry.name);
+        populateDropdown('custom_address_csv', addressFiles.length > 0 ? addressFiles : settingsCsvFiles, 'settings');
         
-        // 施設ファイル (results/*.csv, 特定ファイル)
-        const facilityFiles = resultsCsvFiles.filter(f => 
-            f.includes('dental') || f.includes('marige') || f.includes('funeral')
-        ).filter(f => !f.includes('review') && !f.includes('add'));
+        // 施設ファイル
+        const facilityFiles = fileCache.results.filter(entry => hasPurpose(entry, 'facility_output')).map(entry => entry.name);
         populateDropdown('custom_facility_file', facilityFiles, 'results');
         
-        // レビューファイル (results/*review.csv)
-        const reviewFiles = resultsCsvFiles.filter(f => f.includes('review'));
+        // レビューファイル
+        const reviewFiles = fileCache.results.filter(entry => hasPurpose(entry, 'review_output')).map(entry => entry.name);
         populateDropdown('custom_review_file', reviewFiles, 'results');
         
-        // FIDファイル (results/*fid*.csv または add_data*.csv - FIDを含むファイルまたはadd_dataファイル)
-        // resultsフォルダからfidという文字を含むファイル、またはadd_dataを含むファイルを動的に選択肢に表示
-        const fidFiles = resultsCsvFiles.filter(f => {
-            const lowerName = f.toLowerCase();
-            return lowerName.includes('fid') || lowerName.includes('add_data');
-        });
+        // FIDファイル
+        const fidFiles = fileCache.results.filter(entry => hasPurpose(entry, 'fid_input')).map(entry => entry.name);
         populateDropdown('fid_file', fidFiles, 'results', false);
         
         // 更新施設ファイル (results/*add_data.csv)
-        const addDataFiles = resultsCsvFiles.filter(f => f.includes('add_data'));
+        const addDataFiles = fileCache.results.filter(entry => hasPurpose(entry, 'update_facility_output')).map(entry => entry.name);
         populateDropdown('custom_update_facility_path', addDataFiles, 'results');
         
         // 更新レビューファイル (results/*add_review.csv)
-        const addReviewFiles = resultsCsvFiles.filter(f => f.includes('add_review'));
+        const addReviewFiles = fileCache.results.filter(entry => hasPurpose(entry, 'update_review_output')).map(entry => entry.name);
         populateDropdown('custom_update_review_path', addReviewFiles, 'results');
         
         // 除外GIDファイル (settings/exclude_gids.csv)
-        const excludeFiles = settingsCsvFiles.filter(f => f.includes('exclude'));
+        const excludeFiles = fileCache.settings.filter(entry => hasPurpose(entry, 'exclude_gids')).map(entry => entry.name);
         populateDropdown('custom_exclude_gids_path', excludeFiles, 'settings');
         
         // Reviews workflow用のドロップダウンを設定
         populateDropdown('custom_review_file', reviewFiles, 'results', true);
 
         // Reviews Sequential workflow用のドロップダウンを設定
-        populateDropdown('sequential_csv_file', resultsCsvFiles, 'results', false);
-        populateDropdown('sequential_output_file', reviewFiles, 'results', true);
-        populateDropdown('sequential_all_regions_file', reviewFiles, 'results', true);
-        
+        const sequentialInputFiles = getSequentialInputFiles(fileCache.results);
+        populateDropdown('sequential_csv_file', sequentialInputFiles, 'results', false);
+        refreshSequentialOutputOptions();
         // Reviews Auto-Batch workflow用のドロップダウンを設定
         populateDropdown('auto_batch_fid_file', fidFiles, 'results', false);
         populateDropdown('auto_batch_review_file', reviewFiles, 'results', true);
@@ -383,8 +533,6 @@ function validateFormEnhanced() {
         const csvFile = document.getElementById('sequential_csv_file')?.value || '';
         const outputFile = document.getElementById('sequential_output_file')?.value || '';
         const outputFileNew = document.getElementById('sequential_output_file_new')?.value.trim() || '';
-        const allRegionsFile = document.getElementById('sequential_all_regions_file')?.value || '';
-        const allRegionsFileNew = document.getElementById('sequential_all_regions_file_new')?.value.trim() || '';
         const daysBack = parseInt(document.getElementById('sequential_days_back')?.value || '0');
         const startFromBatch = parseInt(document.getElementById('sequential_start_from_batch')?.value || '0');
         const rowsPerBatch = parseInt(document.getElementById('sequential_rows_per_batch')?.value || '0');
@@ -399,9 +547,6 @@ function validateFormEnhanced() {
         }
         if (!outputFile || (outputFile === '__NEW_FILE__' && !outputFileNew)) {
             errors.push('出力レビューCSVを指定してください');
-        }
-        if (allRegionsFile === '__NEW_FILE__' && !allRegionsFileNew) {
-            errors.push('新しい統合ファイル名を入力してください');
         }
         if (!Number.isInteger(daysBack) || daysBack < 1) {
             errors.push('days_back は1以上の整数を指定してください');
@@ -492,17 +637,12 @@ function getFormData() {
         case 'reviews_sequential':
             const sequentialOutputFile = document.getElementById('sequential_output_file')?.value;
             const sequentialOutputFileNew = document.getElementById('sequential_output_file_new')?.value.trim();
-            const sequentialAllRegionsFile = document.getElementById('sequential_all_regions_file')?.value;
-            const sequentialAllRegionsFileNew = document.getElementById('sequential_all_regions_file_new')?.value.trim();
 
             data.csv_file = document.getElementById('sequential_csv_file').value;
             data.output_file = sequentialOutputFile === '__NEW_FILE__'
                 ? (sequentialOutputFileNew.startsWith('results/') ? sequentialOutputFileNew : `results/${sequentialOutputFileNew}`)
                 : sequentialOutputFile;
-            data.merge_to_all_regions = document.getElementById('sequential_merge_to_all_regions').checked;
-            data.all_regions_file = sequentialAllRegionsFile === '__NEW_FILE__'
-                ? (sequentialAllRegionsFileNew.startsWith('results/') ? sequentialAllRegionsFileNew : `results/${sequentialAllRegionsFileNew}`)
-                : (sequentialAllRegionsFile || 'results/dental_new_reviews_all_regions.csv');
+            data.merge_to_all_regions = false;
             data.days_back = document.getElementById('sequential_days_back').value;
             data.start_from_batch = document.getElementById('sequential_start_from_batch').value;
             data.rows_per_batch = document.getElementById('sequential_rows_per_batch').value;
@@ -649,8 +789,6 @@ function generateIssueBody(data) {
             body += `- **待機時間上限**: ${data.max_wait_minutes}分\n`;
             body += `- **Dataset ID**: \`${data.dataset_id}\`\n`;
             body += `- **Skip column**: \`${data.skip_column}\`\n`;
-            body += `- **全地域マージ**: ${data.merge_to_all_regions ? '有効' : '無効'}\n`;
-            body += `- **統合先**: \`${data.all_regions_file}\`\n`;
             body += `- **レポート生成**: ${data.generate_report ? '有効' : '無効'}\n`;
             if (data.report_days) {
                 body += `- **レポート日数**: ${data.report_days}日\n`;
@@ -822,11 +960,11 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('custom_review_file')?.addEventListener('change', function() {
         toggleNewFileInput('custom_review_file', 'custom_review_file_new');
     });
+    document.getElementById('sequential_csv_file')?.addEventListener('change', function() {
+        refreshSequentialOutputOptions();
+    });
     document.getElementById('sequential_output_file')?.addEventListener('change', function() {
         toggleNewFileInput('sequential_output_file', 'sequential_output_file_new');
-    });
-    document.getElementById('sequential_all_regions_file')?.addEventListener('change', function() {
-        toggleNewFileInput('sequential_all_regions_file', 'sequential_all_regions_file_new');
     });
     document.getElementById('facility_custom_address_csv')?.addEventListener('change', function() {
         toggleNewFileInput('facility_custom_address_csv', 'facility_custom_address_csv_new');

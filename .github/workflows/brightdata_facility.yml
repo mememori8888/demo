@@ -133,7 +133,7 @@ jobs:
         if: always()
         run: |
           echo "🔄 Updating files.json and workflow options..."
-          python update_file_list.py
+          UPDATE_WORKFLOW_CHOICES=true python update_file_list.py
           
           echo ""
           echo "📄 files.json content:"

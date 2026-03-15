@@ -26,48 +26,11 @@ jobs:
             settings
             results
             docs/webapp
+            update_file_list.py
       
       - name: Generate file list JSON
         run: |
-          echo "{" > docs/webapp/files.json
-          echo '  "settings": [' >> docs/webapp/files.json
-          
-          first=true
-          for file in settings/*.csv; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              if [ "$first" = true ]; then
-                echo -n "    \"$filename\"" >> docs/webapp/files.json
-                first=false
-              else
-                echo "," >> docs/webapp/files.json
-                echo -n "    \"$filename\"" >> docs/webapp/files.json
-              fi
-            fi
-          done
-          
-          echo "" >> docs/webapp/files.json
-          echo '  ],' >> docs/webapp/files.json
-          echo '  "results": [' >> docs/webapp/files.json
-          
-          first=true
-          for file in results/*.csv; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              if [ "$first" = true ]; then
-                echo -n "    \"$filename\"" >> docs/webapp/files.json
-                first=false
-              else
-                echo "," >> docs/webapp/files.json
-                echo -n "    \"$filename\"" >> docs/webapp/files.json
-              fi
-            fi
-          done
-          
-          echo "" >> docs/webapp/files.json
-          echo '  ]' >> docs/webapp/files.json
-          echo "}" >> docs/webapp/files.json
-          
+          python update_file_list.py
           cat docs/webapp/files.json
       
       - name: Commit and push

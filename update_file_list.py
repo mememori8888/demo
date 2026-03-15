@@ -1,7 +1,93 @@
-import os
-import json
 import glob
+import json
+import os
 import re
+
+
+SEQUENTIAL_EXCLUDED_KEYWORDS = {
+    'review',
+    'batch',
+    'report',
+    'fid',
+    'heatmap',
+    'duplicate',
+    'analysis',
+    'log',
+    'error',
+    'summary',
+}
+
+FACILITY_EXCLUDED_KEYWORDS = {
+    'review',
+    'batch',
+    'report',
+    'fid',
+    'heatmap',
+    'duplicate',
+    'analysis',
+    'log',
+    'error',
+    'summary',
+    'add_',
+}
+
+
+def _get_extension(filename):
+    return os.path.splitext(filename)[1].lower()
+
+
+def classify_settings_file(filename):
+    lower_name = filename.lower()
+    ext = _get_extension(filename)
+    purposes = []
+
+    if ext == '.csv':
+        purposes.append('settings_csv')
+        if 'address' in lower_name or 'adress' in lower_name:
+            purposes.append('address_input')
+        if 'exclude' in lower_name:
+            purposes.append('exclude_gids')
+    elif ext == '.json':
+        purposes.append('settings_json')
+        if 'settings' in lower_name:
+            purposes.append('config')
+
+    return {
+        'name': filename,
+        'path': f'settings/{filename}',
+        'extension': ext,
+        'purposes': purposes,
+    }
+
+
+def classify_results_file(filename, size=0, mtime=0):
+    lower_name = filename.lower()
+    ext = _get_extension(filename)
+    purposes = ['results_csv'] if ext == '.csv' else []
+
+    if 'review' in lower_name:
+        purposes.append('review_output')
+    if 'fid' in lower_name or 'add_data' in lower_name:
+        purposes.append('fid_input')
+    if 'add_data' in lower_name:
+        purposes.append('update_facility_output')
+    if 'add_review' in lower_name:
+        purposes.append('update_review_output')
+
+    if ext == '.csv' and not any(keyword in lower_name for keyword in SEQUENTIAL_EXCLUDED_KEYWORDS):
+        purposes.append('sequential_input')
+
+    if ext == '.csv' and not any(keyword in lower_name for keyword in FACILITY_EXCLUDED_KEYWORDS):
+        purposes.append('facility_output')
+
+    return {
+        'name': filename,
+        'path': f'results/{filename}',
+        'extension': ext,
+        'purposes': sorted(set(purposes)),
+        'size': size,
+        'last_modified': mtime,
+    }
 
 def update_file_list():
     """
@@ -17,10 +103,12 @@ def update_file_list():
     
     # settingsディレクトリのCSVファイルを取得
     settings_csv_files = []
+    settings_entries = []
     if os.path.exists(settings_dir):
         for file_path in glob.glob(os.path.join(settings_dir, '*.csv')):
             filename = os.path.basename(file_path)
             settings_csv_files.append(filename)
+            settings_entries.append(classify_settings_file(filename))
     settings_csv_files.sort()
     
     # settingsディレクトリのJSONファイルを取得
@@ -29,7 +117,9 @@ def update_file_list():
         for file_path in glob.glob(os.path.join(settings_dir, '*.json')):
             filename = os.path.basename(file_path)
             settings_json_files.append(filename)
+            settings_entries.append(classify_settings_file(filename))
     settings_json_files.sort()
+    settings_entries.sort(key=lambda entry: entry['name'])
     
     # resultsディレクトリのCSVファイルを取得
     results_files = []
@@ -39,12 +129,7 @@ def update_file_list():
             size = os.path.getsize(file_path)
             mtime = os.path.getmtime(file_path)
             
-            results_files.append({
-                'name': filename,
-                'path': file_path,
-                'size': size,
-                'last_modified': mtime
-            })
+            results_files.append(classify_results_file(filename, size=size, mtime=mtime))
     
     # 更新日時順にソート
     results_files.sort(key=lambda x: x['last_modified'], reverse=True)
@@ -57,9 +142,9 @@ def update_file_list():
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump({
-                'settings_csv': settings_csv_files,
-                'settings_json': settings_json_files,
-                'results': results_filenames
+                'settings': settings_entries,
+                'results': results_files,
+                'generated_by': 'update_file_list.py',
             }, f, indent=2, ensure_ascii=False)
         print(f"✅ File list saved to {output_file}")
         print(f"   - Settings CSV files: {len(settings_csv_files)}")
@@ -70,11 +155,15 @@ def update_file_list():
         return False
     
     # ワークフローファイルを更新
-    if os.path.exists(workflow_file):
+    should_update_workflow = os.getenv('UPDATE_WORKFLOW_CHOICES', '').lower() in {'1', 'true', 'yes'}
+
+    if should_update_workflow and os.path.exists(workflow_file):
         print(f"\n📝 Updating workflow file: {workflow_file}")
         update_workflow_choices(workflow_file, settings_csv_files, settings_json_files, results_filenames)
-    else:
+    elif should_update_workflow:
         print(f"⚠️  Workflow file not found: {workflow_file}")
+    else:
+        print("ℹ️  Workflow choice update skipped")
     
     return True
 

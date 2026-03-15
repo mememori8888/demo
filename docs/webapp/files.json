@@ -1,11 +1,44 @@
 {
   "settings": [
-    "address.csv",
-    "address_test.csv",
-    "adress_degital_cho .csv",
-    "adress_small.csv"
+    {
+      "name": "address.csv",
+      "path": "settings/address.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "address_test.csv",
+      "path": "settings/address_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "adress_degital_cho .csv",
+      "path": "settings/adress_degital_cho .csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "adress_small.csv",
+      "path": "settings/adress_small.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    }
   ],
   "results": [
+<<<<<<< HEAD
     "add_data.csv",
     "dental_duplicate_analysis_adress_small.csv",
     "dental_duplicate_analysis_adress_small_stats.csv",
@@ -13,4 +46,38 @@
     "dental_review.csv",
     "fid_test.csv"
   ]
+=======
+    {
+      "name": "add_data.csv",
+      "path": "results/add_data.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "fid_input",
+        "update_facility_output",
+        "sequential_input"
+      ]
+    },
+    {
+      "name": "dental_new.csv",
+      "path": "results/dental_new.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "sequential_input",
+        "facility_output"
+      ]
+    },
+    {
+      "name": "dental_review.csv",
+      "path": "results/dental_review.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ]
+    }
+  ],
+  "generated_by": "update_file_list.py"
+>>>>>>> 8b71c7e (files.jsonにメタデータ付与)
 }
