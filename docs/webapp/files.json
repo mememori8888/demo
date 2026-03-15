@@ -38,15 +38,6 @@
     }
   ],
   "results": [
-<<<<<<< HEAD
-    "add_data.csv",
-    "dental_duplicate_analysis_adress_small.csv",
-    "dental_duplicate_analysis_adress_small_stats.csv",
-    "dental_new.csv",
-    "dental_review.csv",
-    "fid_test.csv"
-  ]
-=======
     {
       "name": "add_data.csv",
       "path": "results/add_data.csv",
@@ -56,6 +47,22 @@
         "fid_input",
         "update_facility_output",
         "sequential_input"
+      ]
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small.csv",
+      "path": "results/dental_duplicate_analysis_adress_small.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ]
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small_stats.csv",
+      "path": "results/dental_duplicate_analysis_adress_small_stats.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
       ]
     },
     {
@@ -76,8 +83,16 @@
         "results_csv",
         "review_output"
       ]
+    },
+    {
+      "name": "fid_test.csv",
+      "path": "results/fid_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "fid_input"
+      ]
     }
   ],
   "generated_by": "update_file_list.py"
->>>>>>> 8b71c7e (files.jsonにメタデータ付与)
 }
