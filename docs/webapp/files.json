@@ -56,7 +56,18 @@
         "review_output"
       ],
       "size": 2548,
-      "last_modified": 1773569037.8054426
+      "last_modified": 1773570834.2258925
+    },
+    {
+      "name": "reviews_batch_1.csv",
+      "path": "results/reviews_batch_1.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 2548,
+      "last_modified": 1773570686.7899356
     },
     {
       "name": "dental_review.csv",
@@ -67,7 +78,7 @@
         "review_output"
       ],
       "size": 16108314,
-      "last_modified": 1773568905.2883098
+      "last_modified": 1773570686.7889357
     },
     {
       "name": "fid_test.csv",
@@ -78,19 +89,7 @@
         "results_csv"
       ],
       "size": 1448,
-      "last_modified": 1773568905.2883098
-    },
-    {
-      "name": "dental_new.csv",
-      "path": "results/dental_new.csv",
-      "extension": ".csv",
-      "purposes": [
-        "facility_output",
-        "results_csv",
-        "sequential_input"
-      ],
-      "size": 34643475,
-      "last_modified": 1773568905.2143095
+      "last_modified": 1773570686.7889357
     },
     {
       "name": "dental_nishinomiya-kitaguchi.csv",
@@ -102,7 +101,29 @@
         "sequential_input"
       ],
       "size": 7517,
-      "last_modified": 1773568905.2143095
+      "last_modified": 1773570686.7149358
+    },
+    {
+      "name": "dental_new.csv",
+      "path": "results/dental_new.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 34643475,
+      "last_modified": 1773570686.7139359
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small_stats.csv",
+      "path": "results/dental_duplicate_analysis_adress_small_stats.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 271,
+      "last_modified": 1773570686.5759363
     },
     {
       "name": "dental_duplicate_analysis_adress_small.csv",
@@ -112,7 +133,7 @@
         "results_csv"
       ],
       "size": 8569,
-      "last_modified": 1773568905.0772412
+      "last_modified": 1773570686.5759363
     },
     {
       "name": "add_data.csv",
@@ -125,7 +146,7 @@
         "update_facility_output"
       ],
       "size": 7517,
-      "last_modified": 1773568905.0763087
+      "last_modified": 1773570686.5759363
     }
   ],
   "generated_by": "update_file_list.py"
