@@ -1060,33 +1060,42 @@ def update_mini(base_query, api_token, zone_name, file_path, facility_file, upda
             
             duplicates = {gid: count for gid, count in gid_count.items() if count > 1}
             
-            # 統計情報をファイルに出力
-            stats_path = duplicate_analysis_path.replace('.csv', '_stats.csv')
-            try:
-                with open(stats_path, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['統計項目', '値'])
-                    writer.writerow(['総取得データ件数（重複含む）', len(duplicate_analysis_rows)])
-                    writer.writerow(['ユニーク施設数', len(gid_count)])
-                    writer.writerow(['重複施設数', len(duplicates)])
-                    # writer.writerow(['新規施設数', appended_count]) # appended_count は計算していない
-                    writer.writerow(['既存施設数（再検出）', len([r for r in duplicate_analysis_rows if r[16] == '既存'])])
-                    writer.writerow(['除外GID数', len([r for r in duplicate_analysis_rows if r[16] == '除外GID'])])
-                    writer.writerow(['総リクエスト数', total_requests_agg])
-                    writer.writerow(['処理住所数', total])
-                    writer.writerow([])
-                    writer.writerow(['重複施設ランキング', ''])
-                    writer.writerow(['順位', 'GID', '施設名', '出現回数'])
+            disallowed_stats_sources = {
+                'dental_duplicate_analysis_adress_small.csv',
+                'dental_duplicate_analysis_address_small.csv',
+            }
+            source_name = os.path.basename(str(duplicate_analysis_path)).lower()
+            if source_name in disallowed_stats_sources:
+                logging.info(f"統計情報ファイルの出力対象外: {source_name}")
+                print(f"INFO: 統計情報ファイルの出力対象外: {source_name}")
+            else:
+                # 統計情報をファイルに出力
+                stats_path = duplicate_analysis_path.replace('.csv', '_stats.csv')
+                try:
+                    with open(stats_path, 'w', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(['統計項目', '値'])
+                        writer.writerow(['総取得データ件数（重複含む）', len(duplicate_analysis_rows)])
+                        writer.writerow(['ユニーク施設数', len(gid_count)])
+                        writer.writerow(['重複施設数', len(duplicates)])
+                        # writer.writerow(['新規施設数', appended_count]) # appended_count は計算していない
+                        writer.writerow(['既存施設数（再検出）', len([r for r in duplicate_analysis_rows if r[16] == '既存'])])
+                        writer.writerow(['除外GID数', len([r for r in duplicate_analysis_rows if r[16] == '除外GID'])])
+                        writer.writerow(['総リクエスト数', total_requests_agg])
+                        writer.writerow(['処理住所数', total])
+                        writer.writerow([])
+                        writer.writerow(['重複施設ランキング', ''])
+                        writer.writerow(['順位', 'GID', '施設名', '出現回数'])
+                        
+                        sorted_duplicates = sorted(duplicates.items(), key=lambda x: x[1], reverse=True)
+                        for idx, (gid, count) in enumerate(sorted_duplicates, 1):
+                            writer.writerow([idx, gid, gid_to_name.get(gid, ''), count])
                     
-                    sorted_duplicates = sorted(duplicates.items(), key=lambda x: x[1], reverse=True)
-                    for idx, (gid, count) in enumerate(sorted_duplicates, 1):
-                        writer.writerow([idx, gid, gid_to_name.get(gid, ''), count])
-                
-                logging.info(f"統計情報ファイル '{stats_path}' を出力しました。")
-                print(f"INFO: 統計情報ファイル '{stats_path}' を出力しました。")
-            except Exception as e:
-                logging.error(f"統計情報ファイル書き込み失敗: {e}")
-                print(f"ERROR: 統計情報ファイル書き込み失敗: {e}")
+                    logging.info(f"統計情報ファイル '{stats_path}' を出力しました。")
+                    print(f"INFO: 統計情報ファイル '{stats_path}' を出力しました。")
+                except Exception as e:
+                    logging.error(f"統計情報ファイル書き込み失敗: {e}")
+                    print(f"ERROR: 統計情報ファイル書き込み失敗: {e}")
             
             logging.info(f"重複分析ファイルに {len(duplicate_analysis_rows)} 件のデータを書き込みました（重複含む全データ）。")
             logging.info(f"重複施設数: {len(duplicates)} 件, 総取得データ: {len(duplicate_analysis_rows)} 件")

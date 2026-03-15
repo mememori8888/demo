@@ -8,6 +8,7 @@ import csv
 import os
 import sys
 import time
+import re
 import requests
 import logging
 from pathlib import Path
@@ -48,6 +49,16 @@ DATASET_ID = os.getenv('BRIGHTDATA_DATASET_ID', 'gd_luzfs1dn2oa0teb81')  # Googl
 DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
 MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
+
+
+def is_disallowed_update_output(path: Path) -> bool:
+    """不要な中間ファイルの出力を抑止する。"""
+    return bool(re.match(r'^reviews_batch_\d+\.csv$', path.name.lower()))
+
+
+if UPDATE_CSV and is_disallowed_update_output(UPDATE_CSV):
+    print(f"INFO: 増分CSV '{UPDATE_CSV.name}' は出力対象外のため生成をスキップします。")
+    UPDATE_CSV = None
 
 
 def setup_logging():
