@@ -28,9 +28,6 @@
 Issue 本文で受け付けるコマンド:
 - /run-reviews
 - /run-facility
-- /run-facility-heatmap
-- /run-generate-heatmap
-- /run-extract-fid
 
 承認コメント:
 - /承認
@@ -55,9 +52,6 @@ Issue 本文で受け付けるコマンド:
 4. ジョブ分岐実行
 - reviews: 再利用ワークフロー brightdata_reviews.yml 呼び出し
 - facility: Python 実行で施設データ更新
-- facility_heatmap: Python 実行でヒートマップ向け施設取得
-- generate_heatmap: ヒートマップ生成処理
-- extract_fid: 再利用ワークフロー extract-fid.yml 呼び出し
 
 5. 完了報告
 - 成功時: 出力ファイルリンクをコメント

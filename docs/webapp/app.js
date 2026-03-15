@@ -319,6 +319,22 @@ function validateFormEnhanced() {
         if (startLine < 0) errors.push('開始行は0以上を指定してください');
         if (processCount < 0) errors.push('処理件数は0以上を指定してください');
     }
+
+    if (currentWorkflow === 'reviews_auto_batch') {
+        const batchSize = parseInt(document.getElementById('auto_batch_size')?.value || '0');
+        const maxParallel = parseInt(document.getElementById('auto_batch_max_parallel')?.value || '0');
+        const workers = parseInt(document.getElementById('auto_batch_workers')?.value || '0');
+
+        if (!Number.isInteger(batchSize) || batchSize < 5000 || batchSize > 20000) {
+            errors.push('バッチサイズは5,000〜20,000の範囲で指定してください');
+        }
+        if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 8) {
+            errors.push('最大並列バッチ数は1〜8の範囲で指定してください');
+        }
+        if (!Number.isInteger(workers) || workers < 5 || workers > 20) {
+            errors.push('並列実行数（バッチ内）は5〜20の範囲で指定してください');
+        }
+    }
     
     if (errors.length > 0) {
         alert('❌ 入力エラー:\n\n' + errors.join('\n'));

@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'issues' && (
+        contains(github.event.issue.body, '/run-reviews-auto-batch') ||
         contains(github.event.issue.body, '/run-reviews') ||
         contains(github.event.issue.body, '/run-facility')
       )) ||
@@ -61,7 +62,9 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           # ワークフロータイプを検出
-          if echo "$ISSUE_BODY" | grep -q "/run-reviews"; then
+          if echo "$ISSUE_BODY" | grep -q "/run-reviews-auto-batch"; then
+            WORKFLOW="reviews_auto_batch"
+          elif echo "$ISSUE_BODY" | grep -q "/run-reviews"; then
             WORKFLOW="reviews"
           elif echo "$ISSUE_BODY" | grep -q "/run-facility"; then
             WORKFLOW="facility"
@@ -97,7 +100,18 @@ jobs:
           details = "Calculation failed"
 
           try:
-              if workflow == "reviews":
+              if workflow == "reviews_auto_batch":
+                batch_size = params.get("batch_size")
+                max_parallel = params.get("max_parallel_jobs")
+                if batch_size and str(batch_size).isdigit():
+                  n = int(batch_size)
+                  parallel = int(max_parallel) if max_parallel and str(max_parallel).isdigit() else 1
+                  requests = n * parallel * 5
+                  details = f"{n} per batch * {parallel} batches * 5 reqs"
+                else:
+                  details = "batch_size is missing or invalid"
+
+              elif workflow == "reviews":
                   count = params.get("process_count")
                   if count and str(count).isdigit():
                       n = int(count)
@@ -159,6 +173,7 @@ jobs:
             const details = '${{ steps.estimate.outputs.details }}';
             
             const workflowNames = {
+              'reviews_auto_batch': '🚀 レビュー取得・自動分割',
               'reviews': '📝 レビュー取得',
               'facility': '🏢 施設データ取得'
             };
@@ -198,12 +213,17 @@ jobs:
             const workflow = '${{ steps.parse.outputs.workflow_type }}';
             const params = JSON.parse(process.env.PARAMS_JSON || '{}');
             const workflowNames = {
+              'reviews_auto_batch': '🚀 レビュー取得・自動分割',
               'reviews': '📝 レビュー取得',
               'facility': '🏢 施設データ取得'
             };
             
             let details = [];
             if (params.task_name) details.push(`- **タスク名**: \`${params.task_name}\``);
+            if (workflow === 'reviews_auto_batch') {
+              if (params.batch_size) details.push(`- **バッチサイズ**: \`${params.batch_size}\``);
+              if (params.max_parallel_jobs) details.push(`- **最大並列バッチ数**: \`${params.max_parallel_jobs}\``);
+            }
             
             // review_fileの取得 (トップレベル or custom_settings内)
             const reviewFile = params.review_file || (params.custom_settings && params.custom_settings.review_file);
@@ -239,6 +259,20 @@ jobs:
       start_line: ${{ fromJson(needs.parse-and-route.outputs.params).start_line }}
       process_count: ${{ fromJson(needs.parse-and-route.outputs.params).process_count }}
       review_file: ${{ fromJson(needs.parse-and-route.outputs.params).review_file || fromJson(needs.parse-and-route.outputs.params).custom_settings.review_file }}
+      workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
+
+  run-reviews-auto-batch:
+    needs: parse-and-route
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews_auto_batch'
+    uses: ./.github/workflows/brightdata_reviews.yml
+    secrets: inherit
+    with:
+      config_file: ${{ fromJson(needs.parse-and-route.outputs.params).config_file || 'settings/settings.json' }}
+      fid_file: ${{ fromJson(needs.parse-and-route.outputs.params).fid_file }}
+      task_name: ${{ fromJson(needs.parse-and-route.outputs.params).task_name }}
+      start_line: ${{ fromJson(needs.parse-and-route.outputs.params).start_line }}
+      process_count: ${{ fromJson(needs.parse-and-route.outputs.params).batch_size }}
+      review_file: ${{ fromJson(needs.parse-and-route.outputs.params).review_file }}
       workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
 
 
@@ -295,7 +329,7 @@ jobs:
           git push || true
 
   report-completion:
-    needs: [parse-and-route, run-reviews, run-facility]
+    needs: [parse-and-route, run-reviews, run-reviews-auto-batch, run-facility]
     runs-on: ubuntu-latest
     if: always() && needs.parse-and-route.outputs.should_run == 'true'
     
@@ -311,6 +345,7 @@ jobs:
             const path = require('path');
             
             const jobs = {
+              'reviews_auto_batch': '${{ needs.run-reviews-auto-batch.result }}',
               'reviews': '${{ needs.run-reviews.result }}',
               'facility': '${{ needs.run-facility.result }}'
             };
@@ -360,9 +395,9 @@ jobs:
                   const fidUrl = `${context.payload.repository.html_url}/blob/main/${fidFile}`;
                   files.push(`- 🔑 **FIDファイル**: [${fidFile}](${fidUrl})`);
                 }
-              } else if (workflow === 'reviews') {
+              } else if (workflow === 'reviews' || workflow === 'reviews_auto_batch') {
                 // レビュー取得の場合
-                const reviewFile = params.custom_review_file || config.review_file;
+                const reviewFile = params.review_file || params.custom_review_file || config.review_file;
                 if (reviewFile) {
                   const fullPath = reviewFile.startsWith('results/') 
                     ? reviewFile 

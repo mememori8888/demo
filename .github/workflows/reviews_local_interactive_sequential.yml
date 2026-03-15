@@ -94,6 +94,15 @@ jobs:
         run: |
           echo "🔍 環境検証中..."
 
+          validate_positive_int() {
+            local name="$1"
+            local value="$2"
+            if ! [[ "$value" =~ ^[0-9]+$ ]] || [ "$value" -lt 1 ]; then
+              echo "❌ エラー: ${name} は1以上の整数を指定してください (現在値: ${value})"
+              exit 1
+            fi
+          }
+
           # APIトークンの確認
           if [ -z "${{ secrets.BRIGHTDATA_API_TOKEN }}" ]; then
             echo "❌ エラー: BRIGHTDATA_API_TOKEN が設定されていません"
@@ -107,6 +116,23 @@ jobs:
             exit 1
           fi
           echo "✅ 入力CSV: ${{ github.event.inputs.csv_file }}"
+
+          # 入力値のバリデーション（フェイルセーフ）
+          validate_positive_int "days_back" "${{ github.event.inputs.days_back }}"
+          validate_positive_int "start_from_batch" "${{ github.event.inputs.start_from_batch }}"
+          validate_positive_int "rows_per_batch" "${{ github.event.inputs.rows_per_batch }}"
+          validate_positive_int "batch_wait" "${{ github.event.inputs.batch_wait }}"
+          validate_positive_int "api_batch_size" "${{ github.event.inputs.api_batch_size }}"
+          validate_positive_int "max_wait_minutes" "${{ github.event.inputs.max_wait_minutes }}"
+
+          if [ -z "${{ github.event.inputs.dataset_id }}" ]; then
+            echo "❌ エラー: dataset_id は空にできません"
+            exit 1
+          fi
+          if [ -z "${{ github.event.inputs.skip_column }}" ]; then
+            echo "❌ エラー: skip_column は空にできません"
+            exit 1
+          fi
 
           # 行数確認
           TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
@@ -327,6 +353,11 @@ jobs:
           START_BATCH=${{ github.event.inputs.start_from_batch }}
 
           TOTAL_BATCHES=$(( (TOTAL_ROWS + ROWS_PER_BATCH - 1) / ROWS_PER_BATCH ))
+
+          if [ "$START_BATCH" -gt "$TOTAL_BATCHES" ]; then
+            echo "❌ エラー: start_from_batch (${START_BATCH}) が総バッチ数 (${TOTAL_BATCHES}) を超えています"
+            exit 1
+          fi
 
           # skip_column入力値を取得
           SKIP_COL="${{ github.event.inputs.skip_column }}"
