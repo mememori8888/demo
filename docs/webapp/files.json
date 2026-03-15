@@ -48,17 +48,6 @@
   ],
   "results": [
     {
-      "name": "reviews_batch_1.csv",
-      "path": "results/reviews_batch_1.csv",
-      "extension": ".csv",
-      "purposes": [
-        "results_csv",
-        "review_output"
-      ],
-      "size": 2548,
-      "last_modified": 1773569037.8058817
-    },
-    {
       "name": "dental_nishinomiya-kitaguchi_reviews.csv",
       "path": "results/dental_nishinomiya-kitaguchi_reviews.csv",
       "extension": ".csv",
@@ -114,16 +103,6 @@
       ],
       "size": 7517,
       "last_modified": 1773568905.2143095
-    },
-    {
-      "name": "dental_duplicate_analysis_adress_small_stats.csv",
-      "path": "results/dental_duplicate_analysis_adress_small_stats.csv",
-      "extension": ".csv",
-      "purposes": [
-        "results_csv"
-      ],
-      "size": 271,
-      "last_modified": 1773568905.0772412
     },
     {
       "name": "dental_duplicate_analysis_adress_small.csv",

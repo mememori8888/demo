@@ -6,6 +6,7 @@ const GITHUB_BRANCH = 'main';
 // グローバル変数
 let issueData = {};
 let currentWorkflow = '';
+const ALLOWED_WEBAPP_WORKFLOWS = ['reviews', 'reviews_auto_batch', 'facility'];
 let fileCache = {
     settings: [],
     results: []
@@ -44,7 +45,8 @@ function inferResultsPurposes(filename) {
     if (filename.toLowerCase().endsWith('.csv')) {
         purposes.push('results_csv');
     }
-    if (lowerName.includes('review')) {
+    const isBatchReviewFile = /^reviews_batch_\d+\.csv$/.test(lowerName);
+    if (lowerName.includes('review') && !isBatchReviewFile) {
         purposes.push('review_output');
     }
     if (lowerName.includes('fid') || lowerName.includes('add_data')) {
@@ -64,6 +66,11 @@ function inferResultsPurposes(filename) {
     }
 
     return [...new Set(purposes)];
+}
+
+function shouldHideFromWebapp(entry) {
+    const name = (entry?.name || '').toLowerCase();
+    return name === 'dental_duplicate_analysis_adress_small_stats.csv' || /^reviews_batch_\d+\.csv$/.test(name);
 }
 
 function normalizeFileEntries(entries, basePath, inferPurposes) {
@@ -378,7 +385,7 @@ async function loadFileOptions() {
         }
 
         fileCache.settings = mergeFileEntries(staticSettings, liveSettings);
-        fileCache.results = mergeFileEntries(staticResults, liveResults);
+        fileCache.results = mergeFileEntries(staticResults, liveResults).filter(entry => !shouldHideFromWebapp(entry));
         
         // CSVファイルのみフィルタ
         const settingsCsvFiles = fileCache.settings.filter(entry => entry.extension === '.csv').map(entry => entry.name);
@@ -514,6 +521,12 @@ function updatePresetOptions() {
 // ワークフロー切り替え
 function switchWorkflow() {
     const workflowType = document.getElementById('workflow_type').value;
+    if (workflowType && !ALLOWED_WEBAPP_WORKFLOWS.includes(workflowType)) {
+        alert('⚠️ このワークフローはWebAppからは選択できません');
+        document.getElementById('workflow_type').value = '';
+        currentWorkflow = '';
+        return;
+    }
     currentWorkflow = workflowType;
     
     // すべてのフォームを非表示 & required属性を無効化
@@ -629,6 +642,11 @@ document.getElementById('jobForm').addEventListener('submit', function(e) {
     // ワークフローが選択されているか確認
     if (!currentWorkflow) {
         alert('⚠️ ワークフローを選択してください');
+        return;
+    }
+
+    if (!ALLOWED_WEBAPP_WORKFLOWS.includes(currentWorkflow)) {
+        alert('⚠️ このワークフローはWebAppからは実行できません');
         return;
     }
     
