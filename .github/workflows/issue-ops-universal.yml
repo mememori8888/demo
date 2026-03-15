@@ -54,6 +54,31 @@ jobs:
               echo "should_run=false" >> $GITHUB_OUTPUT
             fi
           fi
+
+      - name: Notify unauthorized approval attempt
+        if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '/承認') && steps.check.outputs.should_run == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const actor = context.payload.comment?.user?.login || 'unknown';
+            const association = context.payload.comment?.author_association || 'UNKNOWN';
+
+            const body = [
+              '⚠️ 実行は開始されませんでした。',
+              '',
+              '理由: `/承認` の実行権限がありません。',
+              `- 実行ユーザー: ${actor}`,
+              `- 権限: ${association}`,
+              '',
+              '管理者（OWNER）が `/承認` をコメントすると実行できます。'
+            ].join('\n');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
       
       - name: Parse issue body
         id: parse
@@ -247,9 +272,111 @@ jobs:
               body: body
             });
 
-  run-reviews:
+  validate-request:
     needs: parse-and-route
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews'
+    if: needs.parse-and-route.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      should_execute: ${{ steps.validate.outputs.should_execute }}
+      reason: ${{ steps.validate.outputs.reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate request and dependencies
+        id: validate
+        env:
+          WORKFLOW: ${{ needs.parse-and-route.outputs.workflow_type }}
+          PARAMS: ${{ needs.parse-and-route.outputs.params }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          workflow = os.environ.get("WORKFLOW", "").strip()
+          params_raw = os.environ.get("PARAMS", "{}").strip()
+          errors = []
+
+          if not workflow:
+              errors.append("workflow_type が検出できませんでした。Issue本文のコマンドを確認してください。")
+
+          try:
+              params = json.loads(params_raw) if params_raw else {}
+              if not isinstance(params, dict):
+                  errors.append("JSONパラメータはオブジェクト形式で指定してください。")
+                  params = {}
+          except Exception as e:
+              errors.append(f"JSONパラメータの解析に失敗しました: {e}")
+              params = {}
+
+          workflow_files = {
+              "reviews": ".github/workflows/brightdata_reviews.yml",
+              "reviews_auto_batch": ".github/workflows/brightdata_reviews.yml",
+          }
+          required_scripts = {
+              "facility": ["apply_custom_settings.py", "facility_BrightData_20.py"],
+          }
+
+          wf_file = workflow_files.get(workflow)
+          if wf_file and not os.path.exists(wf_file):
+              errors.append(f"必須ワークフローファイルがありません: {wf_file}")
+
+          for script in required_scripts.get(workflow, []):
+              if not os.path.exists(script):
+                  errors.append(f"必須スクリプトがありません: {script}")
+
+          if workflow == "reviews":
+              fid_file = params.get("fid_file")
+              if fid_file and not os.path.exists(fid_file):
+                  errors.append(f"指定された fid_file が存在しません: {fid_file}")
+
+          if workflow == "reviews_auto_batch":
+              for key in ["fid_file", "batch_size", "max_parallel_jobs"]:
+                  if not params.get(key):
+                      errors.append(f"reviews_auto_batch では {key} が必須です。")
+
+          should_execute = "true" if not errors else "false"
+          reason = "バリデーションOK" if not errors else "\n".join(errors)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"should_execute={should_execute}\n")
+              f.write("reason<<EOF\n")
+              f.write(reason + "\n")
+              f.write("EOF\n")
+          PY
+
+      - name: Comment validation errors
+        if: steps.validate.outputs.should_execute != 'true'
+        uses: actions/github-script@v7
+        env:
+          REASON: ${{ steps.validate.outputs.reason }}
+          WORKFLOW: ${{ needs.parse-and-route.outputs.workflow_type }}
+        with:
+          script: |
+            const workflow = process.env.WORKFLOW || 'unknown';
+            const reason = process.env.REASON || 'Unknown validation error';
+
+            const body = [
+              '❌ **実行前バリデーションで停止しました**',
+              '',
+              `- 対象ワークフロー: ${workflow}`,
+              '',
+              '### エラー内容',
+              reason,
+              '',
+              'Issue本文の JSON パラメータや必須ファイルを修正後、再度 /承認 を実行してください。'
+            ].join('\n');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  run-reviews:
+    needs: [parse-and-route, validate-request]
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews'
     uses: ./.github/workflows/brightdata_reviews.yml
     secrets: inherit
     with:
@@ -262,8 +389,8 @@ jobs:
       workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
 
   run-reviews-auto-batch:
-    needs: parse-and-route
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews_auto_batch'
+    needs: [parse-and-route, validate-request]
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews_auto_batch'
     uses: ./.github/workflows/brightdata_reviews.yml
     secrets: inherit
     with:
@@ -277,8 +404,8 @@ jobs:
 
 
   run-facility:
-    needs: parse-and-route
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.parse-and-route.outputs.workflow_type == 'facility'
+    needs: [parse-and-route, validate-request]
+    if: needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true' && needs.parse-and-route.outputs.workflow_type == 'facility'
     runs-on: ubuntu-latest
     
     steps:
@@ -329,9 +456,9 @@ jobs:
           git push || true
 
   report-completion:
-    needs: [parse-and-route, run-reviews, run-reviews-auto-batch, run-facility]
+    needs: [parse-and-route, validate-request, run-reviews, run-reviews-auto-batch, run-facility]
     runs-on: ubuntu-latest
-    if: always() && needs.parse-and-route.outputs.should_run == 'true'
+    if: always() && needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true'
     
     steps:
       - name: Checkout repository
