@@ -110,7 +110,7 @@ jobs:
         id: sequential
         env:
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
-          ZONE_NAME: ${{ secrets.BRIGHTDATA_ZONE_NAME || 'serp_api1' }}
+          ZONE_NAME: ${{ secrets.BRIGHTDATA_ZONE_NAME || 'serp_api2' }}
         run: |
           # Git設定
           git config --local user.email "github-actions[bot]@users.noreply.github.com"

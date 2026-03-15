@@ -177,7 +177,7 @@ def load_settings(task_name_filter=None):
     "base_query": "歯医者",
     "fid_file": "results/fid.csv",
     "review_file": "results/dental_review.csv",
-    "zone_name": "serp_api1"
+    "zone_name": "serp_api2"
   }}
 ]
 ```
@@ -236,7 +236,7 @@ def load_settings(task_name_filter=None):
                 print(f'📁 FID file: {FID_CSV}')
         
         # ゾーン名の設定
-        ZONE_NAME = first_task.get('zone_name', 'serp_api1')
+        ZONE_NAME = first_task.get('zone_name', 'serp_api2')
         print(f'🌐 Zone name: {ZONE_NAME}')
     
     return settings
