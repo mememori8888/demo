@@ -6,7 +6,7 @@ const GITHUB_BRANCH = 'main';
 // グローバル変数
 let issueData = {};
 let currentWorkflow = '';
-const ALLOWED_WEBAPP_WORKFLOWS = ['reviews', 'reviews_auto_batch', 'facility'];
+const ALLOWED_WEBAPP_WORKFLOWS = ['reviews', 'reviews_sequential', 'facility'];
 let fileCache = {
     settings: [],
     results: []
