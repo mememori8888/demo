@@ -90,6 +90,28 @@ function hasPurpose(entry, purpose) {
     return Array.isArray(entry.purposes) && entry.purposes.includes(purpose);
 }
 
+function mergeFileEntries(primaryEntries, secondaryEntries) {
+    const merged = new Map();
+
+    [...(primaryEntries || []), ...(secondaryEntries || [])].forEach(entry => {
+        if (!entry || !entry.path) return;
+
+        const existing = merged.get(entry.path);
+        if (!existing) {
+            merged.set(entry.path, entry);
+            return;
+        }
+
+        merged.set(entry.path, {
+            ...existing,
+            ...entry,
+            purposes: [...new Set([...(existing.purposes || []), ...(entry.purposes || [])])]
+        });
+    });
+
+    return Array.from(merged.values()).sort((left, right) => left.name.localeCompare(right.name, 'ja'));
+}
+
 // プリセット設定
 const PRESETS = {
     facility: {
@@ -324,6 +346,9 @@ function refreshSequentialOutputOptions() {
 // ファイル一覧を読み込み
 async function loadFileOptions() {
     try {
+        let staticSettings = [];
+        let staticResults = [];
+
         // 静的JSONファイルから読み込み（GitHub Actionsで生成）
         // キャッシュ回避のためにタイムスタンプを付与
         const response = await fetch('./files.json?t=' + new Date().getTime());
@@ -331,14 +356,29 @@ async function loadFileOptions() {
             const filesData = await response.json();
             const settingsEntries = filesData.settings || filesData.settings_csv || [];
             const resultEntries = filesData.results || [];
-            fileCache.settings = normalizeFileEntries(settingsEntries, 'settings', inferSettingsPurposes);
-            fileCache.results = normalizeFileEntries(resultEntries, 'results', inferResultsPurposes);
+            staticSettings = normalizeFileEntries(settingsEntries, 'settings', inferSettingsPurposes);
+            staticResults = normalizeFileEntries(resultEntries, 'results', inferResultsPurposes);
         } else {
-            // フォールバック: GitHub APIから直接取得
             console.log('files.json not found, falling back to GitHub API');
-            fileCache.settings = normalizeFileEntries(await fetchGitHubFiles('settings'), 'settings', inferSettingsPurposes);
-            fileCache.results = normalizeFileEntries(await fetchGitHubFiles('results'), 'results', inferResultsPurposes);
         }
+
+        let liveSettings = [];
+        let liveResults = [];
+
+        try {
+            const [settingsFromApi, resultsFromApi] = await Promise.all([
+                fetchGitHubFiles('settings'),
+                fetchGitHubFiles('results')
+            ]);
+
+            liveSettings = normalizeFileEntries(settingsFromApi, 'settings', inferSettingsPurposes);
+            liveResults = normalizeFileEntries(resultsFromApi, 'results', inferResultsPurposes);
+        } catch (error) {
+            console.warn('⚠️ GitHub API fetch failed, using static files.json only:', error);
+        }
+
+        fileCache.settings = mergeFileEntries(staticSettings, liveSettings);
+        fileCache.results = mergeFileEntries(staticResults, liveResults);
         
         // CSVファイルのみフィルタ
         const settingsCsvFiles = fileCache.settings.filter(entry => entry.extension === '.csv').map(entry => entry.name);
