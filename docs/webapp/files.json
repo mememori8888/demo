@@ -35,46 +35,18 @@
         "settings_csv",
         "address_input"
       ]
+    },
+    {
+      "name": "settings.json",
+      "path": "settings/settings.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json",
+        "config"
+      ]
     }
   ],
   "results": [
-    {
-      "name": "add_data.csv",
-      "path": "results/add_data.csv",
-      "extension": ".csv",
-      "purposes": [
-        "results_csv",
-        "fid_input",
-        "update_facility_output",
-        "sequential_input"
-      ]
-    },
-    {
-      "name": "dental_duplicate_analysis_adress_small.csv",
-      "path": "results/dental_duplicate_analysis_adress_small.csv",
-      "extension": ".csv",
-      "purposes": [
-        "results_csv"
-      ]
-    },
-    {
-      "name": "dental_duplicate_analysis_adress_small_stats.csv",
-      "path": "results/dental_duplicate_analysis_adress_small_stats.csv",
-      "extension": ".csv",
-      "purposes": [
-        "results_csv"
-      ]
-    },
-    {
-      "name": "dental_new.csv",
-      "path": "results/dental_new.csv",
-      "extension": ".csv",
-      "purposes": [
-        "results_csv",
-        "sequential_input",
-        "facility_output"
-      ]
-    },
     {
       "name": "dental_review.csv",
       "path": "results/dental_review.csv",
@@ -82,16 +54,77 @@
       "purposes": [
         "results_csv",
         "review_output"
-      ]
+      ],
+      "size": 16108314,
+      "last_modified": 1773568521.3111548
     },
     {
       "name": "fid_test.csv",
       "path": "results/fid_test.csv",
       "extension": ".csv",
       "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 1448,
+      "last_modified": 1773568521.3111548
+    },
+    {
+      "name": "dental_new.csv",
+      "path": "results/dental_new.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
         "results_csv",
-        "fid_input"
-      ]
+        "sequential_input"
+      ],
+      "size": 34643475,
+      "last_modified": 1773568521.2521548
+    },
+    {
+      "name": "dental_nishinomiya-kitaguchi.csv",
+      "path": "results/dental_nishinomiya-kitaguchi.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 7517,
+      "last_modified": 1773568521.2521548
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small_stats.csv",
+      "path": "results/dental_duplicate_analysis_adress_small_stats.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 271,
+      "last_modified": 1773568521.1354384
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small.csv",
+      "path": "results/dental_duplicate_analysis_adress_small.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 8569,
+      "last_modified": 1773568521.1354384
+    },
+    {
+      "name": "add_data.csv",
+      "path": "results/add_data.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "sequential_input",
+        "update_facility_output"
+      ],
+      "size": 7517,
+      "last_modified": 1773568521.1341548
     }
   ],
   "generated_by": "update_file_list.py"
