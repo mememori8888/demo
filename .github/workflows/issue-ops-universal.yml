@@ -1,4 +1,4 @@
-name: 実行不可
+name: オーケストレーション
 
 on:
   issues:
@@ -314,7 +314,7 @@ jobs:
               "reviews_auto_batch": ".github/workflows/brightdata_reviews.yml",
           }
           required_scripts = {
-              "facility": ["apply_custom_settings.py", "facility_BrightData_20.py"],
+              "facility": [".github/scripts/update_config.py", "facility_BrightData_20.py"],
           }
 
           wf_file = workflow_files.get(workflow)
@@ -410,7 +410,7 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -433,8 +433,9 @@ jobs:
           
           echo "CONFIG_FILE: $CONFIG_FILE"
           echo "CUSTOM_SETTINGS: $CUSTOM_SETTINGS"
+          echo "config_file=$CONFIG_FILE" >> $GITHUB_OUTPUT
           
-          python apply_custom_settings.py
+          python .github/scripts/update_config.py
       
       - name: Run facility scraper
         env:

@@ -7,10 +7,24 @@ import json
 import os
 import sys
 
+
+def load_json_env(env_name):
+    raw_value = os.environ.get(env_name)
+    if not raw_value or raw_value == 'null':
+        return None
+
+    try:
+        return json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        print(f"❌ Error parsing {env_name}: {exc}")
+        sys.exit(1)
+
+
 def main():
     config_file = os.environ.get('CONFIG_FILE')
     address_csv = os.environ.get('ADDRESS_CSV', 'default')
     output_prefix = os.environ.get('OUTPUT_PREFIX', '')
+    custom_settings = load_json_env('CUSTOM_SETTINGS')
 
     if not config_file:
         print("❌ Error: CONFIG_FILE environment variable is not set")
@@ -27,6 +41,15 @@ def main():
     # 配列の場合は最初の要素を編集
     if isinstance(config, list):
         config = config[0]
+
+    if custom_settings is not None:
+        if not isinstance(custom_settings, dict):
+            print("❌ Error: CUSTOM_SETTINGS must be a JSON object")
+            sys.exit(1)
+
+        for key, value in custom_settings.items():
+            config[key] = value
+            print(f"✏️  {key}: {value}")
 
     # アドレスファイルの上書き
     if address_csv != 'default':
@@ -52,7 +75,7 @@ def main():
 
     # 設定を配列形式で保存
     try:
-        with open(config_file + '.tmp', 'w', encoding='utf-8') as f:
+        with open(config_file, 'w', encoding='utf-8') as f:
             json.dump([config], f, ensure_ascii=False, indent=2)
         print("✅ Configuration updated successfully")
     except Exception as e:
