@@ -1,5 +1,9 @@
 name: オーケストレーション
 
+permissions:
+  contents: write
+  issues: write
+
 on:
   issues:
     types: [opened]
