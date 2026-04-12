@@ -295,18 +295,37 @@ class BrightDataWebScraperReviews:
     def wait_for_snapshot(self, snapshot_id: str, max_wait_minutes: int = 60) -> bool:
         """
         スナップショット完了まで待機（/progress エンドポイント使用）
+        詳細なログ出力付き
         """
         progress_url = f"{self.base_url}/progress/{snapshot_id}"
         start_time = time.time()
         max_wait_seconds = max_wait_minutes * 60
         interval = 15  # ポーリング間隔（秒）
         
-        logging.info(f"⏳ Waiting for snapshot {snapshot_id}...")
+        logging.info("")
+        logging.info("⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳")
+        logging.info(f"📊 スナップショット待機開始")
+        logging.info(f"  Snapshot ID: {snapshot_id}")
+        logging.info(f"  最大待機時間: {max_wait_minutes}分 ({max_wait_seconds}秒)")
+        logging.info(f"  ポーリング間隔: {interval}秒")
+        logging.info("⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳")
+        logging.info("")
+        
+        last_status = None
+        check_count = 0
         
         while True:
             elapsed = time.time() - start_time
+            check_count += 1
+            
             if elapsed > max_wait_seconds:
-                logging.error(f"❌ Timeout after {max_wait_minutes} minutes")
+                logging.error("")
+                logging.error("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")
+                logging.error(f"❌ タイムアウト: {max_wait_minutes}分以上経過しました")
+                logging.error(f"  経過時間: {int(elapsed)}秒 ({int(elapsed/60)}分{int(elapsed%60)}秒)")
+                logging.error(f"  確認回数: {check_count}回")
+                logging.error("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")
+                logging.error("")
                 return False
             
             try:
@@ -318,7 +337,8 @@ class BrightDataWebScraperReviews:
                 
                 # 5xx エラーは一時的なものとしてリトライ
                 if resp.status_code >= 500:
-                    logging.warning(f"⚠️ Progress check {resp.status_code}, retrying in {interval}s...")
+                    logging.warning(f"⚠️ 【確認#{check_count}】 サーバーエラー (HTTP {resp.status_code})")
+                    logging.warning(f"  経過: {int(elapsed)}秒 → {interval}秒後に再試行")
                     time.sleep(interval)
                     continue
                 
@@ -326,17 +346,46 @@ class BrightDataWebScraperReviews:
                 data = resp.json()
                 status = data.get("status")
                 
-                # 30秒ごとにログ出力
-                if int(elapsed) % 30 == 0 or int(elapsed) < 30:
-                    logging.info(f"Status: {status} (elapsed: {int(elapsed)}s)")
+                # ステータス変化または定期的にログ出力
+                is_status_changed = (status != last_status)
+                is_periodic_log = (int(elapsed) % 30 == 0)
+                
+                if is_status_changed:
+                    logging.info(f"📈 【確認#{check_count}】 ステータス変化: {status}")
+                    logging.info(f"  経過時間: {int(elapsed)}秒 ({int(elapsed/60)}分{int(elapsed%60)}秒)")
+                    last_status = status
+                elif is_periodic_log:
+                    logging.info(f"💭 【確認#{check_count}】 処理中: {status}")
+                    logging.info(f"  経過時間: {int(elapsed)}秒 ({int(elapsed/60)}分{int(elapsed%60)}秒)")
+                    
+                    # 進捗情報が含まれている場合は表示
+                    if "progress" in data:
+                        progress_info = data.get("progress")
+                        logging.info(f"  進捗: {progress_info}")
+                    if "record_size" in data:
+                        record_size = data.get("record_size")
+                        logging.info(f"  レコード数: {record_size}")
                 
                 if status == "ready":
-                    logging.info("✅ Snapshot ready!")
+                    logging.info("")
+                    logging.info("✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅")
+                    logging.info(f"✅ スナップショット完成！")
+                    logging.info(f"  確認回数: {check_count}回")
+                    logging.info(f"  総経過時間: {int(elapsed)}秒 ({int(elapsed/60)}分{int(elapsed%60)}秒)")
+                    logging.info("✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅")
+                    logging.info("")
                     time.sleep(3)  # 完了後も少し待機
                     return True
+                    
                 elif status == "failed":
                     error_msg = data.get("error_message", "Unknown error")
-                    logging.error(f"❌ Snapshot failed: {error_msg}")
+                    logging.error("")
+                    logging.error("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")
+                    logging.error(f"❌ スナップショット失敗: {error_msg}")
+                    logging.error(f"  確認回数: {check_count}回")
+                    logging.error(f"  経過時間: {int(elapsed)}秒 ({int(elapsed/60)}分{int(elapsed%60)}秒)")
+                    logging.error("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")
+                    logging.error("")
                     return False
                 
                 # collecting / digesting / その他 → まだ処理中
@@ -344,11 +393,14 @@ class BrightDataWebScraperReviews:
                 
             except requests.exceptions.RequestException as e:
                 # 502 / Connection broken などは一時的エラーとしてリトライ
-                logging.warning(f"⚠️ Progress check error: {e}, retrying in {interval}s...")
+                logging.warning(f"⚠️ 【確認#{check_count}】 通信エラー: {type(e).__name__}")
+                logging.warning(f"  エラー: {str(e)[:100]}")
+                logging.warning(f"  経過: {int(elapsed)}秒 → {interval}秒後に再試行")
                 time.sleep(interval)
                 continue
             except Exception as e:
-                logging.error(f"❌ Unexpected error during progress check: {e}")
+                logging.error(f"❌ 【確認#{check_count}】 予期しないエラー: {type(e).__name__}: {e}")
+                logging.error(f"  経過: {int(elapsed)}秒 → {interval}秒後に再試行")
                 time.sleep(interval)
                 continue
     
@@ -437,16 +489,81 @@ class BrightDataWebScraperReviews:
     def process_batch(self, urls_with_params: List[Dict], batch_id: str = "0") -> List[Dict]:
         """
         バッチ処理: トリガー → 待機 → データ取得
+        詳細なログ出力付き
         """
-        logging.info(f"🚀 Processing batch {batch_id} with {len(urls_with_params)} URLs")
+        logging.info("")
+        logging.info("🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀")
+        logging.info(f"🚀 バッチ処理開始: ID={batch_id}")
+        logging.info(f"  処理対象: {len(urls_with_params)}件")
+        logging.info("🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀")
         
-        # 1. トリガー
-        snapshot_id = self.trigger_snapshot(urls_with_params)
+        start_time = time.time()
         
-        # 2. 待機
-        if not self.wait_for_snapshot(snapshot_id, max_wait_minutes=MAX_WAIT_MINUTES):
-            logging.error(f"❌ Batch {batch_id} failed")
-            return []
+        try:
+            # ステップ1: トリガー
+            logging.info("")
+            logging.info("[Step 1/3] APIをトリガー中...")
+            logging.info(f"  URL数: {len(urls_with_params)}")
+            logging.info(f"  最初のURL（サンプル）: {urls_with_params[0].get('url', 'N/A')[:60] if urls_with_params else 'N/A'}")
+            
+            trigger_start = time.time()
+            snapshot_id = self.trigger_snapshot(urls_with_params)
+            trigger_elapsed = time.time() - trigger_start
+            
+            logging.info(f"✅ APIトリガー完了 ({trigger_elapsed:.1f}秒)")
+            logging.info(f"  Snapshot ID: {snapshot_id}")
+            
+            # ステップ2: 待機
+            logging.info("")
+            logging.info("[Step 2/3] スナップショット処理待機中...")
+            
+            wait_start = time.time()
+            if not self.wait_for_snapshot(snapshot_id, max_wait_minutes=MAX_WAIT_MINUTES):
+                logging.error(f"❌ バッチ {batch_id}: スナップショット処理失敗")
+                elapsed = time.time() - start_time
+                logging.error(f"  総処理時間: {int(elapsed)}秒")
+                return []
+            wait_elapsed = time.time() - wait_start
+            
+            logging.info(f"✅ スナップショット処理完了 ({wait_elapsed:.1f}秒)")
+            
+            # ステップ3: データ取得
+            logging.info("")
+            logging.info("[Step 3/3] データダウンロード中...")
+            
+            download_start = time.time()
+            reviews = self.get_snapshot_data(snapshot_id, retries=5)
+            download_elapsed = time.time() - download_start
+            
+            logging.info(f"✅ データダウンロード完了 ({download_elapsed:.1f}秒)")
+            logging.info(f"  取得レビュー数: {len(reviews)}件")
+            
+            # バッチ完了サマリー
+            elapsed = time.time() - start_time
+            logging.info("")
+            logging.info("========== バッチ完了サマリー ==========")
+            logging.info(f"  バッチID: {batch_id}")
+            logging.info(f"  入力URL数: {len(urls_with_params)}件")
+            logging.info(f"  出力レビュー数: {len(reviews)}件")
+            logging.info(f"  処理時間: {int(elapsed)}秒 ({int(elapsed/60)}分{int(elapsed%60)}秒)")
+            logging.info(f"    - APIトリガー: {trigger_elapsed:.1f}秒")
+            logging.info(f"    - 待機: {wait_elapsed:.1f}秒")
+            logging.info(f"    - ダウンロード: {download_elapsed:.1f}秒")
+            logging.info("======================================")
+            logging.info("")
+            
+            return reviews
+            
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logging.error("")
+            logging.error("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")
+            logging.error(f"❌ バッチ処理エラー (batch_id={batch_id})")
+            logging.error(f"  エラー: {type(e).__name__}: {str(e)[:100]}")
+            logging.error(f"  処理時間: {int(elapsed)}秒")
+            logging.error("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")
+            logging.error("")
+            raise
         
         # 3. データ取得
         reviews = self.get_snapshot_data(snapshot_id)
@@ -768,14 +885,39 @@ def main():
         'total_fetched_reviews': 0,
         'new_reviews': 0,
         'skipped_reviews': 0,
-        'new_reviews_list': []
+        'new_reviews_list': [],
+        'failed_batches': 0,
+        'successful_batches': 0
     }
+    
+    # 全体処理の開始時刻
+    main_start_time = time.time()
     
     # チャンクごとに処理
     for batch_idx, urls_with_params in enumerate(batches, start=1):
-        logging.info(f'\n{"="*80}')
-        logging.info(f'APIチャンク {batch_idx}/{len(batches)} 処理中...')
-        logging.info(f'{"="*80}')
+        batch_start_time = time.time()
+        
+        # 進捗情報の表示
+        progress_pct = (batch_idx - 1) * 100 // len(batches)
+        remaining_batches = len(batches) - batch_idx
+        elapsed = batch_start_time - main_start_time
+        
+        if batch_idx > 1 and elapsed > 0:
+            avg_time_per_batch = elapsed / (batch_idx - 1)
+            est_remaining = avg_time_per_batch * remaining_batches
+        else:
+            est_remaining = 0
+        
+        logging.info("")
+        logging.info(f"{'─'*80}")
+        logging.info(f"📊 全体進捗: {batch_idx}/{len(batches)} バッチ [{progress_pct}%]")
+        logging.info(f"  経過時間: {int(elapsed)}秒")
+        if est_remaining > 0:
+            logging.info(f"  予想残り: {int(est_remaining)}秒 ({int(est_remaining/60)}分)")
+        logging.info(f"{'─'*80}")
+        
+        logging.info(f'\n🔄 APIチャンク {batch_idx}/{len(batches)} 処理開始')
+        logging.info(f'   URL数: {len(urls_with_params)}件')
         
         try:
             # APIからレビュー取得
@@ -783,14 +925,22 @@ def main():
             
             if not reviews:
                 logging.warning(f'❌ APIチャンク {batch_idx} でレビューが取得できませんでした')
+                stats['failed_batches'] += 1
+                logging.info(f'   結果: 失敗 (リビュー取得0件)')
                 continue
             
-            logging.info(f'✅ APIチャンク {batch_idx}: {len(reviews)}件のレビューを取得')
+            logging.info(f'✅ APIチャンク {batch_idx}: {len(reviews)}件のレビュー取得完了')
+            
+            # レビュー処理カウンタ
+            batch_new_count = 0
+            batch_skip_count = 0
+            batch_error_count = 0
             
             # レビューを施設別に分類
             for review_item in reviews:
                 # エラーレスポンスの場合はスキップ
                 if review_item.get('error') or review_item.get('error_code'):
+                    batch_error_count += 1
                     continue
                 
                 # place_urlまたはurlキーで施設を特定（input.urlから取得）
@@ -803,7 +953,7 @@ def main():
                 )
                 
                 if not place_url or place_url not in facility_map:
-                    logging.warning(f'⚠️ レビューに対応する施設が見つかりません: {place_url}')
+                    batch_error_count += 1
                     continue
                 
                 facility = facility_map[place_url]
@@ -813,6 +963,7 @@ def main():
                 # レビューデータを抽出
                 review_data = extract_review_data_from_api(review_item, facility_id, facility_gid)
                 if not review_data:
+                    batch_error_count += 1
                     continue
                 
                 stats['total_fetched_reviews'] += 1
@@ -820,6 +971,7 @@ def main():
                 # 既存のGIDと照合
                 review_gid = review_data.get('review_id', '')
                 if review_gid in existing_gid_set:
+                    batch_skip_count += 1
                     stats['skipped_reviews'] += 1
                 else:
                     new_review = {
@@ -834,52 +986,78 @@ def main():
                     }
                     stats['new_reviews_list'].append(new_review)
                     existing_gid_set.add(review_gid)
+                    batch_new_count += 1
                     stats['new_reviews'] += 1
                     next_review_id += 1
             
-            logging.info(f'📊 APIチャンク {batch_idx} 集計:')
-            logging.info(f'  新規レビュー: {stats["new_reviews"]}件（累計）')
-            logging.info(f'  スキップ: {stats["skipped_reviews"]}件（累計）')
+            # バッチ処理完了ログ
+            batch_elapsed = time.time() - batch_start_time
+            stats['successful_batches'] += 1
+            
+            logging.info(f"")
+            logging.info(f"✅ APIチャンク {batch_idx} 完了")
+            logging.info(f'   処理時間: {batch_elapsed:.1f}秒')
+            logging.info(f'   新規: {batch_new_count}件 | スキップ: {batch_skip_count}件 | エラー: {batch_error_count}件')
+            logging.info(f'   累計新規: {stats["new_reviews"]}件 | 累計スキップ: {stats["skipped_reviews"]}件')
             
             # チャンクごとに保存
             if stats['new_reviews_list']:
                 all_reviews = existing_reviews + stats['new_reviews_list']
                 save_reviews_to_csv(OUTPUT_CSV, all_reviews)
-                logging.info(f'💾 途中保存完了: {len(all_reviews)}件')
+                logging.info(f'💾 途中保存完了: {len(all_reviews)}件 → {OUTPUT_CSV}')
             
         except Exception as e:
-            logging.error(f'❌ APIチャンク {batch_idx} 処理エラー: {e}')
+            batch_elapsed = time.time() - batch_start_time
+            stats['failed_batches'] += 1
+            logging.error(f'❌ APIチャンク {batch_idx} 処理エラー')
+            logging.error(f'   エラー: {type(e).__name__}: {str(e)[:100]}')
+            logging.error(f'   処理時間: {batch_elapsed:.1f}秒')
             import traceback
             traceback.print_exc()
     
     # 最終レポート
-    logging.info(f'\n{"="*80}')
-    logging.info('処理完了')
-    logging.info(f'{"="*80}')
-    logging.info(f'処理施設数: {stats["total_facilities"]}')
-    logging.info(f'取得レビュー総数: {stats["total_fetched_reviews"]}')
-    logging.info(f'新規レビュー: {stats["new_reviews"]}')
-    logging.info(f'スキップ（既存）: {stats["skipped_reviews"]}')
+    total_elapsed = time.time() - main_start_time
+    
+    logging.info(f"\n{'='*80}")
+    logging.info("🎉 全バッチ処理完了")
+    logging.info(f"{'='*80}")
+    logging.info(f"処理概要:")
+    logging.info(f"  総処理時間: {int(total_elapsed)}秒 ({int(total_elapsed/60)}分{int(total_elapsed%60)}秒)")
+    logging.info(f"  処理施設数: {stats['total_facilities']}")
+    logging.info(f"  バッチ統計:")
+    logging.info(f"    成功: {stats['successful_batches']}/{len(batches)}")
+    logging.info(f"    失敗: {stats['failed_batches']}/{len(batches)}")
+    logging.info(f"")
+    logging.info(f"レビュー統計:")
+    logging.info(f"  取得総数: {stats['total_fetched_reviews']}件")
+    logging.info(f"  新規レビュー: {stats['new_reviews']}件")
+    logging.info(f"  スキップ（既存）: {stats['skipped_reviews']}件")
     
     if stats['total_fetched_reviews'] > 0:
         new_rate = stats['new_reviews'] / stats['total_fetched_reviews'] * 100
-        logging.info(f'新規率: {new_rate:.1f}%')
+        logging.info(f"  新規率: {new_rate:.1f}%")
+    
+    if total_elapsed > 0:
+        reviews_per_min = stats['total_fetched_reviews'] / (total_elapsed / 60)
+        logging.info(f"  処理速度: {reviews_per_min:.1f}件/分")
+    
+    logging.info(f"{'='*80}")
     
     # 全レビューを保存
     if stats['new_reviews_list'] or existing_reviews:
         all_reviews = existing_reviews + stats['new_reviews_list']
         save_reviews_to_csv(OUTPUT_CSV, all_reviews)
-        logging.info(f'\nレビューCSV保存: {OUTPUT_CSV}')
-        logging.info(f'  既存: {len(existing_reviews)}件')
-        logging.info(f'  新規: {len(stats["new_reviews_list"])}件')
-        logging.info(f'  合計: {len(all_reviews)}件')
+        logging.info(f'\n💾 最終出力ファイル: {OUTPUT_CSV}')
+        logging.info(f'   既存: {len(existing_reviews)}件')
+        logging.info(f'   新規: {len(stats["new_reviews_list"])}件')
+        logging.info(f'   合計: {len(all_reviews)}件')
     
     # 増分ファイル（新規レビューのみ）を保存
     if UPDATE_CSV and stats['new_reviews_list']:
         # UPDATE_CSVもPathオブジェクトになっているので安全
         save_reviews_to_csv(UPDATE_CSV, stats['new_reviews_list'])
-        logging.info(f'\n増分CSV保存: {UPDATE_CSV}')
-        logging.info(f'  新規レビュー: {len(stats["new_reviews_list"])}件')
+        logging.info(f'\n📄 増分ファイル: {UPDATE_CSV}')
+        logging.info(f'   新規レビュー: {len(stats["new_reviews_list"])}件')
     
     logging.info(f'\n{"="*80}')
 
