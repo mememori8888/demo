@@ -71,40 +71,92 @@ jobs:
           pip install -r requirements.txt
       
       - name: Validate Environment
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
         run: |
           echo "🔍 環境検証中..."
+          echo ""
           
-          # APIトークンの確認
+          # 1️⃣ APIトークンの確認
           if [ -z "${{ secrets.BRIGHTDATA_API_TOKEN }}" ]; then
             echo "❌ エラー: BRIGHTDATA_API_TOKEN が設定されていません"
+            echo ""
+            echo "解決策："
+            echo "1. GitHub リポジトリの Settings → Secrets and variables → Actions (Secrets) を開く"
+            echo "2. BRIGHTDATA_API_TOKEN を追加する"
+            echo "3. BrightData の API トークンを入力して保存"
             exit 1
           fi
           echo "✅ APIトークン: 設定済み"
           
-          # 入力CSVファイルの確認
+          # 2️⃣ APIトークン有効性テスト
+          echo ""
+          echo "🧪 API トークン有効性をテスト中..."
+          VALIDATE_RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.BRIGHTDATA_API_TOKEN }}" \
+            "https://api.brightdata.com/datasets/v3/progress/test" 2>&1 || echo "CURL_ERROR\n000")
+          
+          HTTP_CODE=$(echo "$VALIDATE_RESPONSE" | tail -1)
+          RESPONSE_BODY=$(echo "$VALIDATE_RESPONSE" | head -n -1)
+          
+          echo "  └ HTTPステータスコード: $HTTP_CODE"
+          echo "  └ レスポンス: ${RESPONSE_BODY:0:200}"
+          
+          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "❌ エラー: APIトークンが無効です"
+            echo "  理由: HTTP $HTTP_CODE - 認証に失敗しました"
+            echo "  確認事項："
+            echo "  - トークンが正しくコピーされているか"
+            echo "  - トークンが期限切れでないか"
+            echo "  - トークンが正しいアカウントのものか"
+            exit 1
+          elif [ "$HTTP_CODE" = "000" ] || [ "$HTTP_CODE" = "" ]; then
+            echo "⚠️ 警告: ネットワーク接続確認できませんでした（オフライン環境の可能性）"
+            echo "  → 処理を続行します"
+          else
+            echo "✅ APIトークン: 検証成功 (HTTP $HTTP_CODE)"
+          fi
+          
+          # 3️⃣ 入力CSVファイルの確認
+          echo ""
           if [ ! -f "${{ github.event.inputs.csv_file }}" ]; then
-            echo "❌ エラー: 入力CSVファイルが見つかりません: ${{ github.event.inputs.csv_file }}"
+            echo "❌ エラー: 入力CSVファイルが見つかりません"
+            echo "  パス: ${{ github.event.inputs.csv_file }}"
+            echo ""
+            echo "存在するファイル一覧:"
+            find results -name "*.csv" -type f | head -20
             exit 1
           fi
           echo "✅ 入力CSV: ${{ github.event.inputs.csv_file }}"
           
-          # 行数確認
+          # 4️⃣ 行数確認
           TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
           echo "✅ 総行数: ${TOTAL_ROWS}行（ヘッダー含む）"
           
-          # 出力ディレクトリの作成
-          mkdir -p results/logs results/reports
+          # ファイルサイズ確認
+          FILE_SIZE=$(du -h "${{ github.event.inputs.csv_file }}" | cut -f1)
+          echo "✅ ファイルサイズ: ${FILE_SIZE}"
+          
+          # 5️⃣ 出力ディレクトリの作成
+          echo ""
+          mkdir -p results/logs results/reports results/errors
           echo "✅ 出力ディレクトリ: 準備完了"
           
-          # Pythonスクリプトの確認
+          # 6️⃣ Pythonスクリプトの確認
           if [ ! -f "get_reviews_from_dental_new.py" ]; then
             echo "❌ エラー: get_reviews_from_dental_new.py が見つかりません"
             exit 1
           fi
           echo "✅ スクリプト: get_reviews_from_dental_new.py"
           
+          # 7️⃣ Pythonのメモリ確認
+          PYTHON_VERSION=$(python --version 2>&1)
+          echo "✅ Python版: $PYTHON_VERSION"
+          
           echo ""
+          echo "=========================================="
           echo "✅ 環境検証完了 - 処理を開始します"
+          echo "=========================================="
       
       - name: Sequential Batch Processing
         id: sequential
@@ -364,22 +416,68 @@ jobs:
             RETRY_COUNT=0
             MAX_RETRIES=3
             BATCH_SUCCESS=false
+            ERROR_MESSAGE=""
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
               echo "🔄 実行試行 $((RETRY_COUNT + 1))/$MAX_RETRIES"
               
-              if python get_reviews_from_dental_new.py 2>&1 | tee -a results/logs/batch_${BATCH}.log; then
+              # エラー内容をファイルに記録
+              ERROR_LOG="results/errors/batch_${BATCH}_attempt_$((RETRY_COUNT + 1)).log"
+              
+              if python get_reviews_from_dental_new.py 2>&1 | tee "$ERROR_LOG" | tee -a results/logs/batch_${BATCH}.log; then
                 BATCH_SUCCESS=true
+                echo "✅ バッチ ${BATCH} 実行成功"
                 break
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
+                EXIT_CODE=$?
+                
+                # エラーメッセージを抽出
+                ERROR_MESSAGE=$(tail -n 20 "$ERROR_LOG" | grep -E "Error|❌|Exception|Traceback" | head -5)
+                
+                echo "❌ バッチ ${BATCH} 失敗（終了コード: $EXIT_CODE）"
+                echo "📋 エラーが記録されました: $ERROR_LOG"
+                
+                # エラー内容をまとめて出力
+                echo ""
+                echo "📝 エラー内容（最新50行）:"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                tail -n 50 "$ERROR_LOG" | head -n 50
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo ""
+                
+                # APIトークン関連のエラーか確認
+                if grep -q "401\|403\|Unauthorized\|Forbidden" "$ERROR_LOG"; then
+                  echo "🔴 認証エラー検出："
+                  echo "  → APIトークンが無効または期限切れの可能性があります"
+                  echo "  → GitHub Secrets の BRIGHTDATA_API_TOKEN を確認してください"
+                fi
+                
+                # ネットワークエラーか確認
+                if grep -q "Connection\|timeout\|ConnectionError\|Max retries" "$ERROR_LOG"; then
+                  echo "🔴 ネットワークエラー検出："
+                  echo "  → BrightData API への接続に失敗しました"
+                  echo "  → ネットワーク接続を確認してください"
+                fi
+                
+                # タイムアウトエラーか確認
+                if grep -q "Timeout\|timeout\|timed out" "$ERROR_LOG"; then
+                  echo "🟡 タイムアウトエラー検出："
+                  echo "  → API レスポンス待機がタイムアウトしました"
+                  echo "  → MAX_WAIT_MINUTES を増やすか、BATCH_SIZE を減らしてください"
+                fi
+                
                 if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                   WAIT_RETRY=$((30 * RETRY_COUNT))
-                  echo "⚠️ バッチ ${BATCH} 失敗 - ${WAIT_RETRY}秒後にリトライ ($RETRY_COUNT/$MAX_RETRIES)"
+                  echo "⏳ ${WAIT_RETRY}秒後にリトライします ($RETRY_COUNT/$MAX_RETRIES)"
                   sleep $WAIT_RETRY
                 fi
               fi
             done
+            
+            if [ "$BATCH_SUCCESS" != true ]; then
+              echo "❌ バッチ ${BATCH} がすべてのリトライで失敗しました"
+            fi
             
             # 成功・失敗に関わらず、途中保存されたCSVをpush
             echo "💾 バッチ処理後のコミット処理を開始..."
@@ -779,6 +877,203 @@ jobs:
             echo "⚠️ レビューファイルが見つかりません: ${{ github.event.inputs.output_file }}"
           fi
       
+      - name: Generate Error Report
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "🔍 エラー診断レポート"
+          echo "=========================================="
+          echo ""
+          
+          ERROR_LOG_DIR="results/errors"
+          MAIN_LOG="results/logs/dental_reviews.log"
+          BATCH_LOG_DIR="results/logs"
+          
+          # ========== エラーレベル判定 ==========
+          CRITICAL_ERRORS=false
+          API_AUTH_ERROR=false
+          NETWORK_ERROR=false
+          TIMEOUT_ERROR=false
+          
+          # 1️⃣ メインログから重要なエラーを抽出
+          if [ -f "$MAIN_LOG" ]; then
+            if grep -q "401\|403\|Unauthorized\|Forbidden" "$MAIN_LOG"; then
+              API_AUTH_ERROR=true
+              CRITICAL_ERRORS=true
+            fi
+            if grep -q "Connection\|timeout\|ConnectionError\|Max retries" "$MAIN_LOG"; then
+              NETWORK_ERROR=true
+              CRITICAL_ERRORS=true
+            fi
+            if grep -q "Timeout after\|Max wait" "$MAIN_LOG"; then
+              TIMEOUT_ERROR=true
+            fi
+          fi
+          
+          # ========== エラー内容の詳細表示 ==========
+          echo "❌ エラー内容分析:"
+          echo ""
+          
+          if [ "$API_AUTH_ERROR" = true ]; then
+            echo "🔴 【認証エラー】 - 最優先で対応が必要"
+            echo "  問題: BrightData API の認証に失敗しました（HTTP 401/403）"
+            echo ""
+            echo "  確認事項:"
+            echo "    1. GitHub リポジトリの [Settings] → [Secrets and variables] → [Actions] を開く"
+            echo "    2. BRIGHTDATA_API_TOKEN の値を確認"
+            echo "       - トークンが正しくコピーされているか（スペースが含まれていないか）"
+            echo "       - トークンの先頭・末尾に余分な文字がないか"
+            echo "    3. BrightData の Web コンソールでトークンを確認"
+            echo "       - トークンが有効期限内か"
+            echo "       - トークンが正しいアカウントのものか"
+            echo ""
+            echo "  エラーログ:"
+            grep "401\|403\|Unauthorized" "$MAIN_LOG" | tail -n 3 | sed 's/^/    /'
+            echo ""
+          fi
+          
+          if [ "$NETWORK_ERROR" = true ]; then
+            echo "🟡 【ネットワークエラー】 - ネットワーク接続を確認"
+            echo "  問題: BrightData API への接続に失敗しました"
+            echo ""
+            echo "  確認事項:"
+            echo "    1. インターネット接続を確認"
+            echo "    2. ホストのファイアウォール設定を確認"
+            echo "    3. GitHub Actions のネットワーク制限を確認"
+            echo "    4. BrightData API ステータスを確認（https://brightdata.statuspage.io）"
+            echo ""
+            echo "  エラーログ:"
+            grep "Connection\|timeout\|ConnectionError" "$MAIN_LOG" | tail -n 3 | sed 's/^/    /'
+            echo ""
+          fi
+          
+          if [ "$TIMEOUT_ERROR" = true ]; then
+            echo "🟡 【タイムアウトエラー】 - 処理時間が長すぎます"
+            echo "  問題: スナップショット処理が完了するまで待機しましたがタイムアウト"
+            echo ""
+            echo "  改善策:"
+            echo "    1. BATCH_SIZE を減らす（デフォルト: 50）"
+            echo "       → ワークフロー内の API_BATCH_SIZE を 25 や 10 に変更"
+            echo "    2. MAX_WAIT_MINUTES を増やす（デフォルト: 90 → 120 など）"
+            echo "    3. データセットのサイズを確認（大きすぎないか）"
+            echo ""
+          fi
+          
+          # 2️⃣ バッチログから失敗パターンを検出
+          echo "=========================================="
+          echo "📊 バッチ処理ログ分析"
+          echo "=========================================="
+          echo ""
+          
+          if [ -d "$BATCH_LOG_DIR" ]; then
+            TOTAL_BATCH_LOGS=$(ls "$BATCH_LOG_DIR"/batch_*.log 2>/dev/null | wc -l)
+            echo "  バッチログファイル数: ${TOTAL_BATCH_LOGS}"
+            
+            # 失敗したバッチを検出
+            FAILED_BATCHES=""
+            for batch_log in "$BATCH_LOG_DIR"/batch_*.log; do
+              if [ -f "$batch_log" ]; then
+                if grep -q "ERROR\|❌\|Exception" "$batch_log"; then
+                  BATCH_NAME=$(basename "$batch_log")
+                  FAILED_BATCHES="$FAILED_BATCHES $BATCH_NAME"
+                fi
+              fi
+            done
+            
+            if [ -n "$FAILED_BATCHES" ]; then
+              echo "  失敗したバッチ:$FAILED_BATCHES"
+              echo ""
+              echo "  詳細:（最初の失敗バッチを表示）"
+              FIRST_FAILED=$(echo "$FAILED_BATCHES" | awk '{print $1}')
+              if [ -n "$FIRST_FAILED" ]; then
+                tail -n 30 "$BATCH_LOG_DIR/$FIRST_FAILED" | head -n 20 | sed 's/^/    /'
+              fi
+            else
+              echo "  ✅ すべてのバッチが成功しました"
+            fi
+          fi
+          
+          echo ""
+          echo "=========================================="
+          echo "📁 ログファイル情報"
+          echo "=========================================="
+          echo ""
+          echo "以下のファイルをダウンロードして詳細を確認できます："
+          echo "  - results/logs/dental_reviews.log    (メインログ)"
+          echo "  - results/logs/batch_*.log           (バッチ別ログ)"
+          echo "  - results/errors/*.log               (エラー詳細)"
+          echo ""
+          echo "ログアップロード完了後、GitHub Actions の Artifacts からダウンロード可能です"
+          
+          echo ""
+          echo "=========================================="
+          echo "🧹 ログ整理: エラーレポート保存"
+          echo "=========================================="
+          
+          # エラーレポート作成
+          ERROR_REPORT="results/errors/ERROR_REPORT.md"
+          mkdir -p results/errors
+          
+          cat > "$ERROR_REPORT" << 'EOFREPORT'
+          # エラー診断レポート
+          
+          ## 実行情報
+          - 実行日時: $(date)
+          - ランID: ${{ github.run_id }}
+          - アクション: ${{ github.action }}
+          
+          ## 検出されたエラー
+          
+          ### APIトークンエラー
+          - HTTPステータス 401/403 が表示されている場合は、APIトークンが不正です
+          - 確認事項:
+            - GitHub Secrets に BRIGHTDATA_API_TOKEN が設定されているか
+            - トークンが正しくコピーされているか
+            - トークンの有効期限を確認
+          
+          ### ネットワークエラー
+          - "Connection error" や "timeout" が表示されている場合
+          - 確認事項:
+            - ネットワーク接続を確認
+            - ファイアウォール設定を確認
+            - 代理サーバーの設定を確認
+          
+          ### タイムアウトエラー
+          - スナップショット待機でタイムアウトしている場合
+          - 対策:
+            - MAX_WAIT_MINUTES を増やす（デフォルト: 90分）
+            - BATCH_SIZE を減らす（デフォルト: 50）
+            - API_BATCH_SIZE を減らす
+          
+          ## ログファイル
+          - メインログ: `results/logs/dental_reviews.log`
+          - バッチログ: `results/logs/batch_*.log`
+          - エラーログ: `results/errors/*.log`
+          EOFREPORT
+          
+          echo "✅ エラーレポートを保存しました: $ERROR_REPORT"
+      
+      - name: Publish Error Summary
+        if: failure()
+        run: |
+          echo "## ❌ 処理でエラーが発生しました" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### エラー内容の確認方法" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. **ワークフロー実行ログ**: 上のステップ出力を確認" >> $GITHUB_STEP_SUMMARY
+          echo "2. **詳細ログファイル**: 下の Artifacts からダウンロード" >> $GITHUB_STEP_SUMMARY
+          echo "3. **エラー診断レポート**: \`results/errors/ERROR_REPORT.md\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### よくある解決策" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| エラー | 対策 |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 401/403 Unauthorized | GitHub Secrets の BRIGHTDATA_API_TOKEN を確認 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Connection timeout | ネットワーク接続を確認、MAX_WAIT_MINUTES を増やす |" >> $GITHUB_STEP_SUMMARY
+          echo "| JSON parse error | API レスポンス形式を確認 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Input CSV not found | 入力 CSV ファイルパスを確認 |" >> $GITHUB_STEP_SUMMARY
+      
       - name: Upload log files
         if: always()
         uses: actions/upload-artifact@v4
@@ -788,6 +1083,7 @@ jobs:
             results/logs/dental_reviews.log
             results/logs/errors.log
             results/logs/batch_*.log
+            results/errors/*.log
           if-no-files-found: ignore
           retention-days: 7
       

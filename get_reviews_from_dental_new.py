@@ -83,6 +83,100 @@ def setup_logging():
     logging.getLogger('').addHandler(console)
 
 
+def validate_api_token():
+    """APIトークンを検証する"""
+    logging.info("🔍 APIトークン検証中...")
+    
+    if not API_TOKEN:
+        logging.error("❌ エラー: BRIGHTDATA_API_TOKEN環境変数が設定されていません")
+        logging.error("解決策: GitHub Secrets で BRIGHTDATA_API_TOKEN を設定してください")
+        raise ValueError("BRIGHTDATA_API_TOKEN not set")
+    
+    # トークンの形式を確認（最小限の検証）
+    if len(API_TOKEN) < 10:
+        logging.error(f"❌ エラー: APIトークンが短すぎます（長さ: {len(API_TOKEN)}）")
+        raise ValueError("API token format invalid")
+    
+    # APIへの接続テスト
+    try:
+        logging.info("🧪 BrightData API への接続テスト中...")
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        
+        test_url = "https://api.brightdata.com/datasets/v3/progress/test"
+        response = requests.get(test_url, headers=headers, timeout=10)
+        
+        logging.info(f"  HTTP Status: {response.status_code}")
+        
+        if response.status_code == 401:
+            logging.error("❌ エラー: APIトークンが無効です（401 Unauthorized）")
+            logging.error("確認事項:")
+            logging.error("  - トークンが正しくコピーされているか")
+            logging.error("  - トークンの有効期限を確認してください")
+            logging.error("  - 別のアカウントのトークンでないか確認")
+            raise ValueError("API token unauthorized")
+        
+        if response.status_code == 403:
+            logging.error("❌ エラー: APIへのアクセスが拒否されています（403 Forbidden）")
+            logging.error("確認事項:")
+            logging.error("  - アカウントの権限を確認")
+            logging.error("  - データセットへのアクセス権限を確認")
+            raise ValueError("API token forbidden")
+        
+        if response.status_code >= 500:
+            logging.warning(f"⚠️ BrightData API が応答しません（{response.status_code}）")
+            logging.warning("  → 暫定的に続行します（API復旧を待ちます）")
+            return True
+        
+        # 2xx ステータス = OK
+        logging.info("✅ APIトークン検証成功")
+        return True
+        
+    except requests.exceptions.Timeout:
+        logging.error("❌ エラー: BrightData API への接続がタイムアウトしました")
+        logging.error("確認事項:")
+        logging.error("  - ネットワーク接続を確認")
+        logging.error("  - ファイアウォール設定を確認")
+        raise
+    except requests.exceptions.ConnectionError as e:
+        logging.error(f"❌ エラー: BrightData API への接続に失敗しました: {e}")
+        logging.error("確認事項:")
+        logging.error("  - ネットワーク接続を確認")
+        logging.error("  - API エンドポイントが正しいか確認")
+        raise
+    except Exception as e:
+        logging.error(f"❌ エラー: API 検証中に予期しないエラー: {e}")
+        logging.error(f"詳細: {type(e).__name__}: {str(e)}")
+        return False  # 通常は続行（本当に重大なエラーのみで停止）
+
+
+def validate_environment():
+    """実行環境全体を検証する"""
+    logging.info("🔍 実行環境検証中...")
+    logging.info(f"  Input CSV: {INPUT_CSV}")
+    logging.info(f"  Output CSV: {OUTPUT_CSV}")
+    logging.info(f"  Dataset ID: {DATASET_ID}")
+    logging.info(f"  Days Back: {DAYS_BACK}")
+    logging.info(f"  Batch Size: {BATCH_SIZE}")
+    logging.info(f"  Max Wait Minutes: {MAX_WAIT_MINUTES}")
+    
+    # 入力ファイル確認
+    if not INPUT_CSV.exists():
+        logging.error(f"❌ エラー: 入力CSVファイルが見つかりません: {INPUT_CSV}")
+        raise FileNotFoundError(f"Input CSV not found: {INPUT_CSV}")
+    
+    input_lines = sum(1 for _ in open(INPUT_CSV))
+    logging.info(f"✅ 入力CSV: {input_lines}行")
+    
+    # 出力ディレクトリ確認
+    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+    logging.info(f"✅ 出力ディレクトリ: {OUTPUT_CSV.parent}")
+    
+    logging.info("✅ 環境検証完了")
+
+
 class BrightDataWebScraperReviews:
     """BrightData Web Scraper API でレビューを取得"""
     
@@ -137,28 +231,65 @@ class BrightDataWebScraperReviews:
                     timeout=120
                 )
                 
-                # レスポンス内容をログ出力（デバッグ用）
+                # ▼▼▼ エラー情報を詳細に出力 ▼▼▼
+                logging.info(f"  Response Status: {resp.status_code}")
+                
                 if resp.status_code >= 400:
-                    logging.error(f"API Error Response: {resp.text[:500]}")
+                    logging.error(f"❌ API Error Status: {resp.status_code}")
+                    logging.error(f"  Response Body: {resp.text[:1000]}")
+                    
+                    # ステータスコード別の詳細ログ
+                    if resp.status_code == 401:
+                        logging.error("  → 認証エラー: APIトークンが無効です")
+                    elif resp.status_code == 403:
+                        logging.error("  → 権限エラー: 要求されたリソースへのアクセス権限がありません")
+                    elif resp.status_code == 429:
+                        logging.error("  → レート制限: API呼び出し回数が上限に達しました")
+                        logging.error("  → 対策: BATCH_SIZE を減らすか、待機時間を増やしてください")
+                    elif resp.status_code >= 500:
+                        logging.error(f"  → サーバーエラー: BrightData API がエラーを返しました")
+                        logging.error(f"  → この場合はリトライが有効になる可能性があります")
                 
                 resp.raise_for_status()
                 snapshot_id = resp.json()["snapshot_id"]
                 logging.info(f"✅ Snapshot triggered: {snapshot_id}")
+                # ▲▲▲ ここまで ▲▲▲
                 
                 # 成功後も少し待機（サーバー負荷軽減）
                 time.sleep(2)
                 return snapshot_id
                 
             except requests.exceptions.HTTPError as e:
+                http_error_msg = f"HTTP Error {e.response.status_code}: {str(e)}"
                 if attempt < max_retries - 1:
                     delay = retry_delays[attempt]
-                    logging.warning(f"⚠️ Trigger failed: {e}. Retrying in {delay}s...")
+                    logging.warning(f"⚠️ Trigger failed: {http_error_msg}")
+                    logging.warning(f"   Response: {e.response.text[:300]}")
+                    logging.warning(f"   Retrying in {delay}s...")
                     time.sleep(delay)
                 else:
-                    logging.error(f"❌ Failed to trigger snapshot after {max_retries} attempts: {e}")
+                    logging.error(f"❌ Failed to trigger snapshot after {max_retries} attempts")
+                    logging.error(f"   Last error: {http_error_msg}")
+                    logging.error(f"   Response: {e.response.text[:500]}")
+                    raise
+            except requests.exceptions.Timeout as e:
+                logging.error(f"❌ Request timeout: {e}")
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    logging.warning(f"   Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    raise
+            except requests.exceptions.ConnectionError as e:
+                logging.error(f"❌ Connection error: {e}")
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    logging.warning(f"   Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
                     raise
             except Exception as e:
-                logging.error(f"❌ Failed to trigger snapshot: {e}")
+                logging.error(f"❌ Failed to trigger snapshot: {type(e).__name__}: {e}")
                 raise
     
     def wait_for_snapshot(self, snapshot_id: str, max_wait_minutes: int = 60) -> bool:
@@ -562,17 +693,15 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
 
 def main():
     """メイン処理"""
-    print('='*80)
-    print('dental_new.csv レビュー取得ツール (Web Scraper API)')
-    print('='*80)
-    
-    # ログ設定
-    setup_logging()
-    
-    # API認証情報チェック
-    if not API_TOKEN:
-        logging.error('❌ BRIGHTDATA_API_TOKEN environment variable not set')
-        sys.exit(1)
+    # ▼▼▼ setup_logging() とバリデーションは呼び出し元で実施するため、ここでは不要 ▼▼▼
+    # print('='*80)
+    # print('dental_new.csv レビュー取得ツール (Web Scraper API)')
+    # print('='*80)
+    # setup_logging()
+    # if not API_TOKEN:
+    #     logging.error('❌ BRIGHTDATA_API_TOKEN environment variable not set')
+    #     sys.exit(1)
+    # ▲▲▲ ここまで ▲▲▲
     
     logging.info(f'入力CSV: {INPUT_CSV}')
     logging.info(f'出力CSV: {OUTPUT_CSV}')
@@ -584,17 +713,31 @@ def main():
     logging.info(f'処理範囲: 行{START_ROW}～{END_ROW if END_ROW else "最終行"}')
     
     # dental_new.csvを読み込み
-    entries = load_dental_csv()
+    try:
+        entries = load_dental_csv()
+    except Exception as e:
+        logging.error(f"❌ CSV読み込みエラー: {e}")
+        raise
+    
     if not entries:
         logging.error('処理対象がありません')
         sys.exit(1)
     
     # 既存レビューを読み込み
-    existing_reviews, existing_gid_set, max_review_id = load_existing_reviews()
+    try:
+        existing_reviews, existing_gid_set, max_review_id = load_existing_reviews()
+    except Exception as e:
+        logging.error(f"❌ 既存レビュー読み込みエラー: {e}")
+        raise
+    
     next_review_id = max_review_id + 1
     
     # BrightData Web Scraper APIクライアント
-    client = BrightDataWebScraperReviews(API_TOKEN, DATASET_ID)
+    try:
+        client = BrightDataWebScraperReviews(API_TOKEN, DATASET_ID)
+    except Exception as e:
+        logging.error(f"❌ APIクライアント初期化エラー: {e}")
+        raise
     
     # バッチに分割
     batches = []
@@ -743,25 +886,47 @@ def main():
 
 if __name__ == '__main__':
     try:
-        # 環境変数の検証
-        if not API_TOKEN:
-            print('❌ エラー: BRIGHTDATA_API_TOKEN環境変数が設定されていません', file=sys.stderr)
-            sys.exit(1)
+        # ロギング初期化
+        setup_logging()
         
-        # INPUT_CSV は Path オブジェクトなので .exists() が使える
-        if not INPUT_CSV.exists():
-            print(f'❌ エラー: 入力CSVファイルが見つかりません: {INPUT_CSV}', file=sys.stderr)
-            sys.exit(1)
+        logging.info("="*50)
+        logging.info("🚀 dental_reviews_fetch started")
+        logging.info("="*50)
+        
+        # 実行環境検証
+        validate_environment()
+        
+        # APIトークン検証
+        validate_api_token()
         
         # メイン処理実行
+        logging.info("")
+        logging.info("📊 データ処理開始...")
         main()
         
+        logging.info("")
+        logging.info("="*50)
+        logging.info("✅ 処理完了しました")
+        logging.info("="*50)
+        
     except KeyboardInterrupt:
-        print('\n⚠️ ユーザーによる中断', file=sys.stderr)
+        logging.warning('\n⚠️ ユーザーによる中断')
         sys.exit(130)
     
+    except FileNotFoundError as e:
+        logging.error(f'\n❌ ファイルエラー: {e}')
+        sys.exit(2)
+    
+    except ValueError as e:
+        logging.error(f'\n❌ 設定エラー: {e}')
+        sys.exit(3)
+    
     except Exception as e:
-        print(f'\n❌ 予期しないエラーが発生しました: {e}', file=sys.stderr)
+        logging.error(f'\n❌ 予期しないエラーが発生しました: {e}')
+        logging.error(f'エラー型: {type(e).__name__}')
         import traceback
-        traceback.print_exc()
+        logging.error('詳細:')
+        for line in traceback.format_exc().split('\n'):
+            if line:
+                logging.error(f'  {line}')
         sys.exit(1)

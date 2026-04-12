@@ -18,8 +18,7 @@ webapp→issue→github actions起動→データ出力
 faiility_brightdata_new_version.py
 reviews_brightData_new_version.py > これは/workspaces/demo/run_reviews_local_interactive.py　を少し変更する。
 
-新機能
-スプレッドシートに固定で出力する。
+
 
 
 
