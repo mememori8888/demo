@@ -700,6 +700,7 @@ jobs:
 
       - name: Merge to All Regions File
         if: ${{ inputs.merge_to_all_regions }}
+        continue-on-error: true
         run: |
           echo ""
           echo "=========================================="
@@ -836,6 +837,7 @@ jobs:
 
       - name: Generate Review Report
         if: ${{ inputs.generate_report }}
+        continue-on-error: true
         run: |
           echo ""
           echo "=========================================="
@@ -898,12 +900,14 @@ jobs:
 
       - name: Update file list
         if: always()
+        continue-on-error: true
         run: |
           echo "🔄 Updating files.json..."
           python update_file_list.py
 
       - name: Commit updated file list
         if: always()
+        continue-on-error: true
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -988,11 +992,51 @@ jobs:
           echo "- Skip column: \`${{ inputs.skip_column }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
+          ADDED_REVIEWS=$(python3 - <<'PY'
+          import csv
+          import glob
+
+          ids = set()
+          for path in glob.glob('results/reviews_batch_*.csv'):
+              try:
+                  with open(path, 'r', encoding='utf-8-sig', newline='') as f:
+                      reader = csv.DictReader(f)
+                      for row in reader:
+                          rid = (row.get('レビューGID') or row.get('レビューID') or '').strip()
+                          if rid:
+                              ids.add(rid)
+              except Exception:
+                  continue
+
+          print(len(ids))
+          PY
+          )
+
+          echo "### 結果" >> $GITHUB_STEP_SUMMARY
+          echo "- **今回追加レビュー数**: ${ADDED_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
+
           if [ -f "${{ inputs.output_file }}" ]; then
-            TOTAL_REVIEWS=$(wc -l < "${{ inputs.output_file }}" | xargs)
-            TOTAL_REVIEWS=$((TOTAL_REVIEWS - 1))
-            echo "### 結果" >> $GITHUB_STEP_SUMMARY
-            echo "- **総レビュー数**: ${TOTAL_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
+            TOTAL_REVIEWS=$(OUTPUT_FILE="${{ inputs.output_file }}" python3 - <<'PY'
+          import csv
+          import os
+
+          output_file = os.environ.get('OUTPUT_FILE', '').strip()
+          ids = set()
+
+          try:
+              with open(output_file, 'r', encoding='utf-8-sig', newline='') as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      rid = (row.get('レビューGID') or row.get('レビューID') or '').strip()
+                      if rid:
+                          ids.add(rid)
+          except Exception:
+              pass
+
+          print(len(ids))
+          PY
+            )
+            echo "- 出力CSVのユニークID件数（累積）: ${TOTAL_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

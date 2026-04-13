@@ -557,6 +557,9 @@ jobs:
             
             const workflow = '${{ needs.parse-and-route.outputs.workflow_type }}';
             const result = jobs[workflow];
+            const shouldRun = '${{ needs.parse-and-route.outputs.should_run }}';
+            const shouldExecute = '${{ needs.validate-request.outputs.should_execute }}';
+            const validationReason = `${{ needs.validate-request.outputs.reason }}`;
             
             const resultsUrl = `${context.payload.repository.html_url}/tree/main/results`;
             const artifactUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}#artifacts`;
@@ -637,8 +640,39 @@ jobs:
                 repo: context.repo.repo,
                 state: 'closed'
               });
+            } else if (result === 'cancelled') {
+              const reasons = [];
+              reasons.push(`- workflow_type: \`${workflow || 'unknown'}\``);
+              reasons.push(`- should_run: \`${shouldRun || 'unknown'}\``);
+              reasons.push(`- should_execute: \`${shouldExecute || 'unknown'}\``);
+
+              if (validationReason && validationReason !== 'バリデーションOK') {
+                reasons.push(`- バリデーション詳細:\n\`\`\`\n${validationReason}\n\`\`\``);
+              }
+
+              body = `⚠️ **ジョブはキャンセルされました**\n\n` +
+                     `- 実行結果: \`${result}\`\n` +
+                     `\n### 🔎 判定情報\n${reasons.join('\n')}\n` +
+                     `- [Actionsログを見る](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
+            } else if (result === 'skipped') {
+              const reasons = [];
+              reasons.push(`- workflow_type: \`${workflow || 'unknown'}\``);
+              reasons.push(`- should_run: \`${shouldRun || 'unknown'}\``);
+              reasons.push(`- should_execute: \`${shouldExecute || 'unknown'}\``);
+
+              if (validationReason && validationReason !== 'バリデーションOK') {
+                reasons.push(`- バリデーション詳細:\n\`\`\`\n${validationReason}\n\`\`\``);
+              }
+
+              body = `ℹ️ **ジョブはスキップされました**\n\n` +
+                     `- 実行結果: \`${result}\`\n` +
+                     `- Issue本文のコマンド/パラメータを確認してください\n` +
+                     `\n### 🔎 判定情報\n${reasons.join('\n')}\n` +
+                     `- [Actionsログを見る](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
             } else {
-              body = `❌ **ジョブ失敗**\n\nエラー詳細は [Actions](${context.payload.repository.html_url}/actions/runs/${context.runId}) を確認してください。`;
+              body = `❌ **ジョブ失敗**\n\n` +
+                     `- 実行結果: \`${result || 'unknown'}\`\n` +
+                     `エラー詳細は [Actions](${context.payload.repository.html_url}/actions/runs/${context.runId}) を確認してください。`;
             }
             
             github.rest.issues.createComment({

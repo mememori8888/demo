@@ -910,7 +910,7 @@ def main():
         
         logging.info("")
         logging.info(f"{'─'*80}")
-        logging.info(f"📊 全体進捗: {batch_idx}/{len(batches)} バッチ [{progress_pct}%]")
+        logging.info(f"📊 全体進捗: {batch_idx}/{len(batches)} チャンク [{progress_pct}%]")
         logging.info(f"  経過時間: {int(elapsed)}秒")
         if est_remaining > 0:
             logging.info(f"  予想残り: {int(est_remaining)}秒 ({int(est_remaining/60)}分)")
@@ -999,6 +999,8 @@ def main():
             logging.info(f'   処理時間: {batch_elapsed:.1f}秒')
             logging.info(f'   新規: {batch_new_count}件 | スキップ: {batch_skip_count}件 | エラー: {batch_error_count}件')
             logging.info(f'   累計新規: {stats["new_reviews"]}件 | 累計スキップ: {stats["skipped_reviews"]}件')
+            if batch_error_count > 0:
+                logging.info('   注記: エラー件数はAPI応答内の個別エラーレコード数です（チャンク失敗件数ではありません）')
             
             # チャンクごとに保存
             if stats['new_reviews_list']:
@@ -1019,12 +1021,12 @@ def main():
     total_elapsed = time.time() - main_start_time
     
     logging.info(f"\n{'='*80}")
-    logging.info("🎉 全バッチ処理完了")
+    logging.info("🎉 全チャンク処理完了")
     logging.info(f"{'='*80}")
     logging.info(f"処理概要:")
     logging.info(f"  総処理時間: {int(total_elapsed)}秒 ({int(total_elapsed/60)}分{int(total_elapsed%60)}秒)")
     logging.info(f"  処理施設数: {stats['total_facilities']}")
-    logging.info(f"  バッチ統計:")
+    logging.info(f"  チャンク統計:")
     logging.info(f"    成功: {stats['successful_batches']}/{len(batches)}")
     logging.info(f"    失敗: {stats['failed_batches']}/{len(batches)}")
     logging.info(f"")
