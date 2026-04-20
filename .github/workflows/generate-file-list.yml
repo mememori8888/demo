@@ -4,11 +4,6 @@ permissions:
   contents: write
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'settings/**'
-      - 'results/**'
   workflow_dispatch:
 
 concurrency:
@@ -19,15 +14,23 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
           sparse-checkout: |
-            settings
-            results
             docs/webapp
             update_file_list.py
-      
+
+      - name: Checkout private data
+        uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+
       - name: Generate file list JSON
         run: |
           python update_file_list.py

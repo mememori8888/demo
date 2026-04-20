@@ -138,10 +138,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pull latest CSV
+      - name: Checkout private data
+        uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+
+      - name: Copy private data to workspace
         run: |
-          git pull origin main
-          echo "✅ 最新のCSVを取得しました"
+          echo "📂 プライベートデータをワークスペースにコピー中..."
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+          mkdir -p results/logs results/reports
+          echo "✅ settings/ と results/ をコピーしました"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -176,6 +186,8 @@ jobs:
           # 入力CSVファイルの確認
           if [ ! -f "${{ inputs.csv_file }}" ]; then
             echo "❌ エラー: 入力CSVファイルが見つかりません: ${{ inputs.csv_file }}"
+            echo "   private-data/results/ 内のファイル:"
+            ls private-data/results/ 2>/dev/null || echo "(private-data/results/ が見つかりません)"
             exit 1
           fi
           echo "✅ 入力CSV: ${{ inputs.csv_file }}"
@@ -936,6 +948,29 @@ jobs:
           else
             echo "📝 files.json に変更なし"
           fi
+
+      - name: Save results to private repository
+        if: always()
+        run: |
+          echo "💾 結果をプライベートリポジトリに保存中..."
+          cp -r results/. private-data/results/ 2>/dev/null || true
+
+          cd private-data
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add results/
+          if git diff --staged --quiet; then
+            echo "ℹ️ プライベートリポジトリに変更なし"
+          else
+            git commit -m "Update review data - $(date +'%Y-%m-%d %H:%M:%S')"
+            for i in {1..3}; do
+              git pull --rebase origin main 2>/dev/null || true
+              git push && echo "✅ プライベートリポジトリに保存しました" && break
+              echo "⚠️ Push失敗 ($i/3) - リトライ..."
+              sleep 5
+            done
+          fi
+          cd ..
 
       - name: Upload log files
         if: always()

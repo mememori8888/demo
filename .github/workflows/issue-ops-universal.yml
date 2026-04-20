@@ -128,6 +128,8 @@ jobs:
           except:
               params = {}
 
+          # データはプライベートリポジトリにあるため行数カウントは省略
+          # パラメータから直接見積もる
           requests = 0
           details = "Calculation failed"
 
@@ -150,48 +152,17 @@ jobs:
                       requests = n * 5
                       details = f"{n} facilities * 5 reqs"
                   else:
-                      fid_file = params.get("fid_file", "results/fid.csv")
-                      if os.path.exists(fid_file):
-                          with open(fid_file, encoding="utf-8", errors="ignore") as f:
-                              n = sum(1 for _ in f) - 1
-                          requests = n * 5
-                          details = f"{n} facilities (file) * 5 reqs"
-                      else:
-                          details = "FID file not found"
+                      details = "process_count を指定すると見積もりができます（プライベートデータのため行数自動取得不可）"
 
               elif workflow == "reviews_sequential":
-                  csv_file = params.get("csv_file", "results/dental_new.csv")
-                  if os.path.exists(csv_file):
-                      with open(csv_file, encoding="utf-8", errors="ignore") as f:
-                          n = max(sum(1 for _ in f) - 1, 0)
-                      requests = n
-                      details = f"{n} facilities * 1 dataset input"
+                  rows_per_batch = params.get("rows_per_batch")
+                  if rows_per_batch and str(rows_per_batch).isdigit():
+                      details = f"1バッチ {rows_per_batch} 行（総行数はプライベートデータのため自動取得不可）"
                   else:
-                      details = f"Input CSV not found: {csv_file}"
+                      details = "rows_per_batch を指定すると見積もりができます"
 
               elif workflow == "facility":
-                  custom = params.get("custom_settings", {})
-                  csv_path = custom.get("address_csv_path") if custom else None
-                  if not csv_path:
-                      if os.path.exists("settings/settings.json"):
-                          try:
-                              with open("settings/settings.json", encoding="utf-8") as f:
-                                  settings = json.load(f)
-                                  if isinstance(settings, list) and len(settings) > 0:
-                                      csv_path = settings[0].get("address_csv_path")
-                          except:
-                              pass
-                  
-                  if not csv_path:
-                      csv_path = "settings/address.csv"
-
-                  if os.path.exists(csv_path):
-                      with open(csv_path, encoding="utf-8", errors="ignore") as f:
-                          n = sum(1 for _ in f) - 1
-                      requests = n * 1
-                      details = f"{n} addresses * 1 req"
-                  else:
-                      details = f"Address file not found: {csv_path}"
+                  details = "住所CSVはプライベートデータのため行数自動取得不可"
 
           except Exception as e:
               details = f"Error: {str(e)}"
@@ -308,6 +279,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Checkout private data
+        uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+
       - name: Validate request and dependencies
         id: validate
         env:
@@ -321,6 +302,8 @@ jobs:
           workflow = os.environ.get("WORKFLOW", "").strip()
           params_raw = os.environ.get("PARAMS", "{}").strip()
           errors = []
+          # データファイルはプライベートリポジトリにある
+          DATA_ROOT = "private-data"
 
           if not workflow:
               errors.append("workflow_type が検出できませんでした。Issue本文のコマンドを確認してください。")
@@ -352,9 +335,15 @@ jobs:
               if not os.path.exists(script):
                   errors.append(f"必須スクリプトがありません: {script}")
 
+          def data_path(p):
+              """相対パスをプライベートリポジトリのパスに変換"""
+              if os.path.isabs(p):
+                  return p
+              return os.path.join(DATA_ROOT, p)
+
           if workflow == "reviews":
               fid_file = params.get("fid_file")
-              if fid_file and not os.path.exists(fid_file):
+              if fid_file and not os.path.exists(data_path(fid_file)):
                   errors.append(f"指定された fid_file が存在しません: {fid_file}")
 
           if workflow == "reviews_auto_batch":
@@ -368,7 +357,7 @@ jobs:
 
               if not csv_file:
                   errors.append("reviews_sequential では csv_file が必須です。")
-              elif not os.path.exists(csv_file):
+              elif not os.path.exists(data_path(csv_file)):
                   errors.append(f"指定された csv_file が存在しません: {csv_file}")
 
               if not output_file:
@@ -486,7 +475,20 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+
+      - name: Checkout private data
+        uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+
+      - name: Copy private data to workspace
+        run: |
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+          echo "✅ settings/ と results/ をコピーしました"
       
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -521,16 +523,26 @@ jobs:
           CONFIG_FILE: ${{ steps.settings.outputs.config_file }}
         run: |
           echo "Using CONFIG_FILE: $CONFIG_FILE"
-          python facility_BrightData_20.py
+          python faiility_brightdata_new_version.py
       
-      - name: Commit results
+      - name: Save results to private repository
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add results/ settings/settings.json
-          git diff --staged --quiet || git commit -m "Update facility data and settings"
-          git pull --rebase origin main
-          git push || true
+          echo "💾 結果をプライベートリポジトリに保存中..."
+          cp -r results/. private-data/results/ 2>/dev/null || true
+          cp -r settings/. private-data/settings/ 2>/dev/null || true
+
+          cd private-data
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add results/ settings/
+          if git diff --staged --quiet; then
+            echo "ℹ️ プライベートリポジトリに変更なし"
+          else
+            git commit -m "Update facility data - $(date +'%Y-%m-%d %H:%M:%S')"
+            git pull --rebase origin main || true
+            git push
+            echo "✅ プライベートリポジトリに保存しました"
+          fi
 
   report-completion:
     needs: [parse-and-route, validate-request, run-reviews, run-reviews-sequential, run-reviews-auto-batch, run-facility]
@@ -561,7 +573,7 @@ jobs:
             const shouldExecute = '${{ needs.validate-request.outputs.should_execute }}';
             const validationReason = `${{ needs.validate-request.outputs.reason }}`;
             
-            const resultsUrl = `${context.payload.repository.html_url}/tree/main/results`;
+            const privateRepoUrl = 'https://github.com/mememori8888/googlemap';
             const artifactUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}#artifacts`;
             
             // Issueから解析されたパラメータを取得
@@ -575,61 +587,32 @@ jobs:
             
             let body = '';
             if (result === 'success') {
-              // settings.jsonから設定を読み込み（フォールバック用）
-              let config = {};
-              try {
-                const configData = fs.readFileSync('settings/settings.json', 'utf8');
-                config = JSON.parse(configData);
-              } catch (error) {
-                console.log('設定ファイル読み込みエラー:', error.message);
-              }
-              
               // 出力ファイルのリストを作成（ワークフロータイプに応じて表示）
               const files = [];
               
               if (workflow === 'facility') {
-                // 施設情報取得の場合
-                const facilityFile = params.custom_facility_file || config.facility_file;
+                const facilityFile = params.custom_facility_file;
                 if (facilityFile) {
-                  const fullPath = facilityFile.startsWith('results/') 
-                    ? facilityFile 
-                    : `results/${facilityFile}`;
-                  const fileUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 📍 **施設ファイル**: [${fullPath}](${fileUrl})`);
-                  
-                  // FIDファイル（施設ファイル名から自動生成）
-                  const facilityName = path.basename(fullPath, '.csv');
-                  const fidFile = `results/${facilityName}_fid.csv`;
-                  const fidUrl = `${context.payload.repository.html_url}/blob/main/${fidFile}`;
-                  files.push(`- 🔑 **FIDファイル**: [${fidFile}](${fidUrl})`);
+                  files.push(`- 📍 **施設ファイル**: \`${facilityFile}\`（プライベートリポジトリ）`);
+                  const facilityName = path.basename(facilityFile, '.csv');
+                  files.push(`- 🔑 **FIDファイル**: \`results/${facilityName}_fid.csv\`（プライベートリポジトリ）`);
                 }
               } else if (workflow === 'reviews' || workflow === 'reviews_auto_batch' || workflow === 'reviews_sequential') {
-                // レビュー取得の場合
-                const reviewFile = params.output_file || params.review_file || params.custom_review_file || config.review_file;
+                const reviewFile = params.output_file || params.review_file || params.custom_review_file;
                 if (reviewFile) {
-                  const fullPath = reviewFile.startsWith('results/') 
-                    ? reviewFile 
-                    : `results/${reviewFile}`;
-                  const reviewUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- ⭐ **レビューファイル**: [${fullPath}](${reviewUrl})`);
+                  files.push(`- ⭐ **レビューファイル**: \`${reviewFile}\`（プライベートリポジトリ）`);
                 }
-                
-                // FID入力ファイル
                 const inputFile = params.csv_file || params.fid_file;
                 if (inputFile) {
-                  const fullPath = inputFile.startsWith('results/') 
-                    ? inputFile 
-                    : `results/${inputFile}`;
-                  const inputUrl = `${context.payload.repository.html_url}/blob/main/${fullPath}`;
-                  files.push(`- 📥 **入力ファイル**: [${fullPath}](${inputUrl})`);
+                  files.push(`- 📥 **入力ファイル**: \`${inputFile}\`（プライベートリポジトリ）`);
                 }
               }
               
               const fileList = files.length > 0 ? `\n\n### 📊 出力ファイル\n${files.join('\n')}` : '';
               
               body = `✅ **ジョブ完了**${fileList}\n\n` +
-                     `### 📦 ダウンロード\n` +
-                     `- [📁 resultsフォルダを見る](${resultsUrl})\n` +
+                     `### 📦 データの確認\n` +
+                     `- [📁 プライベートリポジトリ results/ を見る](${privateRepoUrl}/tree/main/results)\n` +
                      `- [📦 Artifactsをダウンロード](${artifactUrl})\n` +
                      `- [📊 Actionsログを見る](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
               

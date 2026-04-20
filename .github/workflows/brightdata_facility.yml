@@ -59,6 +59,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Checkout private data
+        uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+
+      - name: Copy private data to workspace
+        run: |
+          echo "📂 プライベートデータをワークスペースにコピー中..."
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+          echo "✅ settings/ と results/ をコピーしました"
+          ls -la settings/ results/
         
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -115,11 +130,11 @@ jobs:
           echo "📁 Config file: $CONFIG_FILE"
           echo "📍 Custom address CSV: ${CUSTOM_ADDRESS_CSV:-default from config}"
           echo "📄 Custom output file: ${CUSTOM_OUTPUT_FILE:-default from config}"
-          echo "📜 Using script: facility_BrightData_20.py"
+          echo "📜 Using script: faiility_brightdata_new_version.py"
           echo "🔢 Max requests per address: $MAX_REQUESTS"
           echo "👷 Parallel workers: $MAX_WORKERS"
           echo ""
-          python facility_BrightData_20.py
+          python faiility_brightdata_new_version.py
           
       - name: Upload results (always)
         if: always()
@@ -157,11 +172,29 @@ jobs:
           git status --ignored --short | grep "^!!" || echo "  (none)"
           echo ""
           
-          # 追跡外のファイル（新規ファイル）を追加
-          git add -A results/ docs/webapp/files.json .github/workflows/brightdata_facility.yml 2>/dev/null || true
-          
-          # settings.json は Issue Ops でのみ更新するため、除外
-          git reset settings/settings.json 2>/dev/null || true
+          # 結果をプライベートリポジトリに保存
+          echo "💾 結果をプライベートリポジトリに保存中..."
+          cp -r results/. private-data/results/ 2>/dev/null || true
+          cp -r settings/. private-data/settings/ 2>/dev/null || true
+          cd private-data
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add results/ settings/
+          if git diff --staged --quiet; then
+            echo "ℹ️ プライベートリポジトリに変更なし"
+          else
+            git commit -m "Update facility data - $(date +'%Y-%m-%d %H:%M:%S')"
+            git push
+            echo "✅ プライベートリポジトリに保存しました"
+          fi
+          cd ..
+
+          # デモリポジトリには webapp の更新のみコミット
+          git add docs/webapp/files.json .github/workflows/brightdata_facility.yml 2>/dev/null || true
+
+          # 不要な変更を除外
+          git reset settings/ 2>/dev/null || true
+          git reset results/ 2>/dev/null || true
           
           # 他の不要な変更も除外（念のため）
           git reset logs/ 2>/dev/null || true

@@ -89,14 +89,41 @@ def classify_results_file(filename, size=0, mtime=0):
         'last_modified': mtime,
     }
 
+def _detect_data_root():
+    """
+    データルートを検出する（フェイルセーフ設計）
+    優先順位: PRIVATE_DATA_ROOT env > private-data/ > /workspaces/googlemap > カレントディレクトリ
+    """
+    import sys
+    from pathlib import Path
+
+    env_root = os.environ.get('PRIVATE_DATA_ROOT', '').strip()
+    if env_root:
+        p = Path(env_root)
+        if p.exists() and (p / 'settings').exists():
+            return str(p)
+        print(f"⚠️  PRIVATE_DATA_ROOT='{env_root}' に settings/ が見つかりません", file=sys.stderr)
+
+    for candidate in ['private-data', '/workspaces/googlemap']:
+        p = Path(candidate)
+        if p.exists() and (p / 'settings').exists():
+            return str(p)
+
+    # カレントディレクトリにフォールバック
+    return '.'
+
+
 def update_file_list():
     """
     resultsディレクトリ内のファイル一覧を更新し、webapp/files.jsonに保存する
     さらに、GitHub Actionsワークフローファイルの選択肢も自動更新する
+    データはプライベートリポジトリ (PRIVATE_DATA_ROOT) から読み込む
     """
-    results_dir = 'results'
-    settings_dir = 'settings'
+    data_root = _detect_data_root()
+    results_dir = os.path.join(data_root, 'results')
+    settings_dir = os.path.join(data_root, 'settings')
     output_file = 'docs/webapp/files.json'
+    print(f"📁 データルート: {data_root}")
     workflow_file = '.github/workflows/brightdata_facility.yml'
     
     print(f"Updating file list from {results_dir} and {settings_dir} to {output_file}")

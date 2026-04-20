@@ -2,6 +2,8 @@
 const GITHUB_OWNER = 'mememori8888';
 const GITHUB_REPO = 'demo';
 const GITHUB_BRANCH = 'main';
+// データはプライベートリポジトリ (mememori8888/googlemap) に保存されています。
+// files.json はワークフロー実行時に自動生成・コミットされるため、GitHub APIは使用しません。
 
 // グローバル変数
 let issueData = {};
@@ -356,7 +358,7 @@ async function loadFileOptions() {
         let staticSettings = [];
         let staticResults = [];
 
-        // 静的JSONファイルから読み込み（GitHub Actionsで生成）
+        // files.json から読み込み（GitHub Actionsでプライベートリポジトリのデータから生成）
         // キャッシュ回避のためにタイムスタンプを付与
         const response = await fetch('./files.json?t=' + new Date().getTime());
         if (response.ok) {
@@ -366,26 +368,12 @@ async function loadFileOptions() {
             staticSettings = normalizeFileEntries(settingsEntries, 'settings', inferSettingsPurposes);
             staticResults = normalizeFileEntries(resultEntries, 'results', inferResultsPurposes);
         } else {
-            console.log('files.json not found, falling back to GitHub API');
+            console.log('files.json not found');
         }
 
-        let liveSettings = [];
-        let liveResults = [];
-
-        try {
-            const [settingsFromApi, resultsFromApi] = await Promise.all([
-                fetchGitHubFiles('settings'),
-                fetchGitHubFiles('results')
-            ]);
-
-            liveSettings = normalizeFileEntries(settingsFromApi, 'settings', inferSettingsPurposes);
-            liveResults = normalizeFileEntries(resultsFromApi, 'results', inferResultsPurposes);
-        } catch (error) {
-            console.warn('⚠️ GitHub API fetch failed, using static files.json only:', error);
-        }
-
-        fileCache.settings = mergeFileEntries(staticSettings, liveSettings);
-        fileCache.results = mergeFileEntries(staticResults, liveResults).filter(entry => !shouldHideFromWebapp(entry));
+        // データはプライベートリポジトリにあるため GitHub API による live fetch は行わない
+        fileCache.settings = staticSettings;
+        fileCache.results = staticResults.filter(entry => !shouldHideFromWebapp(entry));
         
         // CSVファイルのみフィルタ
         const settingsCsvFiles = fileCache.settings.filter(entry => entry.extension === '.csv').map(entry => entry.name);
