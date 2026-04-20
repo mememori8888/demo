@@ -68,4 +68,5 @@ Thumbs.db
 
 # Google API credentials
 credentials.json
-token.json
+token.jsonsettings/
+results/
