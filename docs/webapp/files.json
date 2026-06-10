@@ -1,5 +1,738 @@
 {
-  "settings": [],
-  "results": [],
+  "settings": [
+    {
+      "name": "address.csv",
+      "path": "settings/address.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "address_test.csv",
+      "path": "settings/address_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "address_wordpress_only.csv",
+      "path": "settings/address_wordpress_only.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "adress_degital_cho .csv",
+      "path": "settings/adress_degital_cho .csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "adress_small.csv",
+      "path": "settings/adress_small.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    },
+    {
+      "name": "care_group-home.json",
+      "path": "settings/care_group-home.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "care_group-home_test.json",
+      "path": "settings/care_group-home_test.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "care_roujin-home.json",
+      "path": "settings/care_roujin-home.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "care_roujin-home_test.json",
+      "path": "settings/care_roujin-home_test.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "care_sakouju.json",
+      "path": "settings/care_sakouju.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "care_sakouju_test.json",
+      "path": "settings/care_sakouju_test.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "exclude_gids.csv",
+      "path": "settings/exclude_gids.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "exclude_gids"
+      ]
+    },
+    {
+      "name": "marriage_reviews.json",
+      "path": "settings/marriage_reviews.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "marriage_reviews_full.json",
+      "path": "settings/marriage_reviews_full.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "marriage_reviews_test.json",
+      "path": "settings/marriage_reviews_test.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json"
+      ]
+    },
+    {
+      "name": "settings.json",
+      "path": "settings/settings.json",
+      "extension": ".json",
+      "purposes": [
+        "settings_json",
+        "config"
+      ]
+    },
+    {
+      "name": "wordpress_address.csv",
+      "path": "settings/wordpress_address.csv",
+      "extension": ".csv",
+      "purposes": [
+        "settings_csv",
+        "address_input"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "name": "葬儀場_レビュー取得用GIDデータ.csv",
+      "path": "results/葬儀場_レビュー取得用GIDデータ.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 1299375,
+      "last_modified": 1781061443.1665475
+    },
+    {
+      "name": "介護施設データ_レビュー用_4.csv",
+      "path": "results/介護施設データ_レビュー用_4.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 2,
+      "last_modified": 1781061443.166372
+    },
+    {
+      "name": "wordpress_custom_review_update.csv",
+      "path": "results/wordpress_custom_review_update.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 4312,
+      "last_modified": 1781061443.1650903
+    },
+    {
+      "name": "wordpress_custom_review.csv",
+      "path": "results/wordpress_custom_review.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 762984,
+      "last_modified": 1781061443.164786
+    },
+    {
+      "name": "sougi0301.csv",
+      "path": "results/sougi0301.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 2828592,
+      "last_modified": 1781061443.1637893
+    },
+    {
+      "name": "new_reiviews.csv",
+      "path": "results/new_reiviews.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 16232173,
+      "last_modified": 1781061443.0597904
+    },
+    {
+      "name": "marriage_new_reviews.csv",
+      "path": "results/marriage_new_reviews.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 1361158,
+      "last_modified": 1781061443.0548398
+    },
+    {
+      "name": "marige_review.csv",
+      "path": "results/marige_review.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 22722475,
+      "last_modified": 1781061443.0277908
+    },
+    {
+      "name": "funeral_review.csv",
+      "path": "results/funeral_review.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 351188,
+      "last_modified": 1781061443.0128696
+    },
+    {
+      "name": "funeral.csv",
+      "path": "results/funeral.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 88443,
+      "last_modified": 1781061443.0127575
+    },
+    {
+      "name": "fid_test.csv",
+      "path": "results/fid_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 1448,
+      "last_modified": 1781061443.012701
+    },
+    {
+      "name": "fid_marrigge.csv",
+      "path": "results/fid_marrigge.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 338953,
+      "last_modified": 1781061443.012534
+    },
+    {
+      "name": "fid_care_roujin-home_test.csv",
+      "path": "results/fid_care_roujin-home_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 9536238,
+      "last_modified": 1781061443.010791
+    },
+    {
+      "name": "fid.csv",
+      "path": "results/fid.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 3317932,
+      "last_modified": 1781061443.0072718
+    },
+    {
+      "name": "extractedd_fid_add_data_marriage_20151215.csv",
+      "path": "results/extractedd_fid_add_data_marriage_20151215.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "update_facility_output"
+      ],
+      "size": 142473,
+      "last_modified": 1781061443.0069082
+    },
+    {
+      "name": "extracted_fid_test.csv",
+      "path": "results/extracted_fid_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 142473,
+      "last_modified": 1781061443.0067828
+    },
+    {
+      "name": "extracted_fid_1219.csv",
+      "path": "results/extracted_fid_1219.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv"
+      ],
+      "size": 257198,
+      "last_modified": 1781061443.0007825
+    },
+    {
+      "name": "dental_review.csv",
+      "path": "results/dental_review.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 16108314,
+      "last_modified": 1781061442.9987912
+    },
+    {
+      "name": "dental_nishinomiya-kitaguchi_reviews.csv",
+      "path": "results/dental_nishinomiya-kitaguchi_reviews.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 2548,
+      "last_modified": 1781061442.9928145
+    },
+    {
+      "name": "dental_nishinomiya-kitaguchi.csv",
+      "path": "results/dental_nishinomiya-kitaguchi.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 7517,
+      "last_modified": 1781061442.992759
+    },
+    {
+      "name": "dental_new_tohoku_kanto_34-37.csv",
+      "path": "results/dental_new_tohoku_kanto_34-37.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 149,
+      "last_modified": 1781061442.9903786
+    },
+    {
+      "name": "dental_new_tohoku_kanto.csv",
+      "path": "results/dental_new_tohoku_kanto.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 15971752,
+      "last_modified": 1781061442.9887912
+    },
+    {
+      "name": "dental_new_reviews_kansai.csv",
+      "path": "results/dental_new_reviews_kansai.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 793822,
+      "last_modified": 1781061442.9834316
+    },
+    {
+      "name": "dental_new_reviews_hokkaido.csv",
+      "path": "results/dental_new_reviews_hokkaido.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 119612,
+      "last_modified": 1781061442.983264
+    },
+    {
+      "name": "dental_new_reviews_all_regions_add.csv",
+      "path": "results/dental_new_reviews_all_regions_add.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 2767877,
+      "last_modified": 1781061442.9807913
+    },
+    {
+      "name": "dental_new_reviews_all_regions.csv",
+      "path": "results/dental_new_reviews_all_regions.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output"
+      ],
+      "size": 10725020,
+      "last_modified": 1781061442.9777913
+    },
+    {
+      "name": "dental_new_kansai.csv",
+      "path": "results/dental_new_kansai.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 5446457,
+      "last_modified": 1781061442.9728012
+    },
+    {
+      "name": "dental_new_hokkaido.csv",
+      "path": "results/dental_new_hokkaido.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 1557212,
+      "last_modified": 1781061442.971802
+    },
+    {
+      "name": "dental_new_chugoku_shikoku_kyushu.csv",
+      "path": "results/dental_new_chugoku_shikoku_kyushu.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 6390076,
+      "last_modified": 1781061442.9697914
+    },
+    {
+      "name": "dental_new_chubu_re.csv",
+      "path": "results/dental_new_chubu_re.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 93721,
+      "last_modified": 1781061442.9688113
+    },
+    {
+      "name": "dental_new_chubu.csv",
+      "path": "results/dental_new_chubu.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 5328232,
+      "last_modified": 1781061442.9677913
+    },
+    {
+      "name": "dental_new.csv",
+      "path": "results/dental_new.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 34643475,
+      "last_modified": 1781061442.9587915
+    },
+    {
+      "name": "dental_heatmap_address.csv",
+      "path": "results/dental_heatmap_address.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 3706,
+      "last_modified": 1781061442.946778
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small_stats.csv",
+      "path": "results/dental_duplicate_analysis_adress_small_stats.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 271,
+      "last_modified": 1781061442.946729
+    },
+    {
+      "name": "dental_duplicate_analysis_adress_small.csv",
+      "path": "results/dental_duplicate_analysis_adress_small.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 8569,
+      "last_modified": 1781061442.9466717
+    },
+    {
+      "name": "dental_duplicate_analysis_address_test_stats.csv",
+      "path": "results/dental_duplicate_analysis_address_test_stats.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 72485,
+      "last_modified": 1781061442.9465826
+    },
+    {
+      "name": "dental_duplicate_analysis_address_test.csv",
+      "path": "results/dental_duplicate_analysis_address_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 2482411,
+      "last_modified": 1781061442.9456637
+    },
+    {
+      "name": "dental.csv",
+      "path": "results/dental.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 20283,
+      "last_modified": 1781061442.9441078
+    },
+    {
+      "name": "care_roujin_home_prefecture_summary.csv",
+      "path": "results/care_roujin_home_prefecture_summary.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv"
+      ],
+      "size": 10939,
+      "last_modified": 1781061442.944008
+    },
+    {
+      "name": "care_roujin_categories_counts.csv",
+      "path": "results/care_roujin_categories_counts.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 22381,
+      "last_modified": 1781061442.943815
+    },
+    {
+      "name": "care_roujin-home_test_cleaned.csv",
+      "path": "results/care_roujin-home_test_cleaned.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 7756424,
+      "last_modified": 1781061442.9417918
+    },
+    {
+      "name": "care_roujin-home_test.csv",
+      "path": "results/care_roujin-home_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 21473199,
+      "last_modified": 1781061442.9357917
+    },
+    {
+      "name": "care_0228.csv",
+      "path": "results/care_0228.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 712231,
+      "last_modified": 1781061442.927458
+    },
+    {
+      "name": "adress_hoge.csv",
+      "path": "results/adress_hoge.csv",
+      "extension": ".csv",
+      "purposes": [
+        "facility_output",
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 0,
+      "last_modified": 1781061442.925792
+    },
+    {
+      "name": "add_review.csv",
+      "path": "results/add_review.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "review_output",
+        "update_review_output"
+      ],
+      "size": 16232173,
+      "last_modified": 1781061442.9247918
+    },
+    {
+      "name": "add_data_marriage_kihon.csv",
+      "path": "results/add_data_marriage_kihon.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "sequential_input",
+        "update_facility_output"
+      ],
+      "size": 644038,
+      "last_modified": 1781061442.9201834
+    },
+    {
+      "name": "add_data_marriage_2025-12-19_reivews.csv",
+      "path": "results/add_data_marriage_2025-12-19_reivews.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "sequential_input",
+        "update_facility_output"
+      ],
+      "size": 578048,
+      "last_modified": 1781061442.9198756
+    },
+    {
+      "name": "add_data_marriage_2025-12-19.csv",
+      "path": "results/add_data_marriage_2025-12-19.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "sequential_input",
+        "update_facility_output"
+      ],
+      "size": 1419032,
+      "last_modified": 1781061442.9192677
+    },
+    {
+      "name": "add_data_marriage_20151215.csv",
+      "path": "results/add_data_marriage_20151215.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "sequential_input",
+        "update_facility_output"
+      ],
+      "size": 466864,
+      "last_modified": 1781061442.9189346
+    },
+    {
+      "name": "add_data.csv",
+      "path": "results/add_data.csv",
+      "extension": ".csv",
+      "purposes": [
+        "fid_input",
+        "results_csv",
+        "sequential_input",
+        "update_facility_output"
+      ],
+      "size": 7517,
+      "last_modified": 1781061442.9188347
+    },
+    {
+      "name": "add_care_roujin-home_test.csv",
+      "path": "results/add_care_roujin-home_test.csv",
+      "extension": ".csv",
+      "purposes": [
+        "results_csv",
+        "sequential_input"
+      ],
+      "size": 628740,
+      "last_modified": 1781061442.918537
+    }
+  ],
   "generated_by": "update_file_list.py"
 }
