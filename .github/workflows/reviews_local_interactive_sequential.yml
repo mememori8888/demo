@@ -478,6 +478,21 @@ jobs:
             echo "   スキップ判定列: [${SKIP_COL}]"
             echo "=========================================="
 
+            # 環境変数を設定
+            export INPUT_CSV="${{ inputs.csv_file }}"
+            export OUTPUT_CSV="${{ inputs.output_file }}"
+            export UPDATE_CSV="results/reviews_batch_${BATCH}.csv"
+            export START_ROW=$START_ROW
+            export END_ROW=$END_ROW
+            export BATCH_SIZE=${API_BATCH_SIZE}
+            export DAYS_BACK=${{ inputs.days_back }}
+            export MAX_WAIT_MINUTES=${MAX_WAIT_MINUTES}
+            export BRIGHTDATA_DATASET_ID="${DATASET_ID}"
+            export SKIP_COLUMN="${SKIP_COL}"
+            
+            # ▼▼▼ この1行を追加（Pythonのログ溜め込みを防止し、リアルタイム表示にする） ▼▼▼
+            export PYTHONUNBUFFERED=1
+
             # バッチ処理実行（リトライ付き）
             RETRY_COUNT=0
             MAX_RETRIES=3
