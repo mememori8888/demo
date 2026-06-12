@@ -18,7 +18,7 @@
             <!-- ワークフロー選択 -->
             <div class="form-group">
                 <label for="workflow_type">実行するワークフロー *</label>
-                <select id="workflow_type" required>
+                <select id="workflow_type" required aria-required="true" aria-label="実行するワークフロー（必須）">
                     <option value="">選択してください</option>
                     <option value="reviews">📝 レビュー取得 (Reviews)</option>
                     <option value="reviews_sequential">⚡ レビュー取得・新仕様逐次実行 (Reviews Sequential)</option>
@@ -40,45 +40,45 @@
                     
                     <div class="form-group">
                         <label for="custom_review_file">レビューファイル名</label>
-                        <select id="custom_review_file">
+                        <select id="custom_review_file" aria-label="レビューファイル名の選択" aria-describedby="custom_review_file_help">
                             <option value="">（設定ファイルのデフォルトを使用）</option>
                             <!-- GitHub APIから動的に読み込まれます -->
                         </select>
-                        <small>レビューデータの保存先ファイル名 (results/*review.csv)</small>
+                        <small id="custom_review_file_help">レビューデータの保存先ファイル名 (results/*review.csv)</small>
                     </div>
                     
                     <div class="form-group" id="custom_review_file_new_container" style="display: none;">
                         <label for="custom_review_file_new">新しいファイル名を入力</label>
-                        <input type="text" id="custom_review_file_new" placeholder="例: new_review.csv">
-                        <small>拡張子 .csv を含めて入力してください</small>
+                        <input type="text" id="custom_review_file_new" placeholder="例: new_review.csv" aria-label="新規レビューファイル名" aria-describedby="custom_review_file_new_help">
+                        <small id="custom_review_file_new_help">拡張子 .csv を含めて入力してください</small>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label for="fid_file">FIDファイル</label>
-                    <select id="fid_file">
+                    <select id="fid_file" aria-label="FIDファイルの選択" aria-describedby="fid_file_help">
                         <option value="">（設定ファイルのデフォルトを使用）</option>
                         <!-- GitHub APIから動的に読み込まれます -->
                     </select>
-                    <small>FID列（施設FID/FID/fid）を含むCSVファイル (results/*.csv)</small>
+                    <small id="fid_file_help">FID列（施設FID/FID/fid）を含むCSVファイル (results/*.csv)</small>
                 </div>
 
                 <div class="form-group">
                     <label for="start_line">開始行</label>
-                    <input type="number" id="start_line" min="1" placeholder="例: 1（空欄で最初から）">
-                    <small>並列処理時に指定（1始まり）</small>
+                    <input type="number" id="start_line" min="1" placeholder="例: 1（空欄で最初から）" aria-label="処理開始行番号" aria-describedby="start_line_help">
+                    <small id="start_line_help">並列処理時に指定（1始まり）</small>
                 </div>
 
                 <div class="form-group">
                     <label for="process_count">処理件数</label>
-                    <input type="number" id="process_count" min="1" max="10000" placeholder="例: 1000（空欄で全件処理）">
-                    <small>並列処理時に指定（最大10,000件）</small>
+                    <input type="number" id="process_count" min="1" max="10000" placeholder="例: 1000（空欄で全件処理）" aria-label="処理件数（最大10000件）" aria-describedby="process_count_help">
+                    <small id="process_count_help">並列処理時に指定（最大10,000件）</small>
                 </div>
 
                 <div class="form-group">
                     <label for="reviews_workers">並列実行数</label>
-                    <input type="number" id="reviews_workers" value="10" min="1" max="20">
-                    <small>同時に実行するワーカー数（デフォルト: 10）</small>
+                    <input type="number" id="reviews_workers" value="10" min="1" max="20" aria-label="並列実行ワーカー数（1-20）" aria-describedby="reviews_workers_help">
+                    <small id="reviews_workers_help">同時に実行するワーカー数（デフォルト: 10）</small>
                 </div>
                 </div>
 
@@ -161,7 +161,7 @@
 
                         <div class="form-group">
                             <label for="sequential_csv_file">入力CSVファイル *</label>
-                            <select id="sequential_csv_file" required>
+                            <select id="sequential_csv_file" required aria-required="true" aria-label="入力CSVファイル（必須）">
                                 <option value="">選択してください</option>
                             </select>
                             <small>施設CSV。GoogleMap 列と skip_column で指定する列を含む必要があります</small>
@@ -169,7 +169,7 @@
 
                         <div class="form-group">
                             <label for="sequential_output_file">出力レビューCSV *</label>
-                            <select id="sequential_output_file" required>
+                            <select id="sequential_output_file" required aria-required="true" aria-label="出力レビュークCSV（必須）">
                                 <option value="">選択してください</option>
                             </select>
                             <small>レビューの保存先。既存ファイル選択または新規作成が可能です</small>
@@ -187,8 +187,8 @@
 
                         <div class="form-group">
                             <label for="sequential_days_back">days_back *</label>
-                            <input type="number" id="sequential_days_back" value="10" min="1" required>
-                            <small>何日前までのレビューを取得するか</small>
+                            <input type="number" id="sequential_days_back" value="10" min="1" required aria-required="true" aria-label="days_back日数（必須）" aria-describedby="sequential_days_back_help">
+                            <small id="sequential_days_back_help">何日前までのレビューを取得するか</small>
                         </div>
 
                         <div class="form-group">
@@ -199,38 +199,38 @@
 
                         <div class="form-group">
                             <label for="sequential_rows_per_batch">rows_per_batch *</label>
-                            <input type="number" id="sequential_rows_per_batch" value="500" min="1" required>
-                            <small>1バッチあたりの施設行数</small>
+                            <input type="number" id="sequential_rows_per_batch" value="500" min="1" required aria-required="true" aria-label="1バッチあたりの施設行数（必須）" aria-describedby="sequential_rows_per_batch_help">
+                            <small id="sequential_rows_per_batch_help">1バッチあたりの施設行数</small>
                         </div>
 
                         <div class="form-group">
                             <label for="sequential_batch_wait">batch_wait *</label>
-                            <input type="number" id="sequential_batch_wait" value="120" min="1" required>
-                            <small>バッチ間待機秒数</small>
+                            <input type="number" id="sequential_batch_wait" value="120" min="1" required aria-required="true" aria-label="バッチ間待機秒数（必須）" aria-describedby="sequential_batch_wait_help">
+                            <small id="sequential_batch_wait_help">バッチ間待機秒数</small>
                         </div>
 
                         <div class="form-group">
                             <label for="sequential_api_batch_size">api_batch_size *</label>
-                            <input type="number" id="sequential_api_batch_size" value="50" min="1" required>
-                            <small>API に1回で渡す施設件数</small>
+                            <input type="number" id="sequential_api_batch_size" value="50" min="1" required aria-required="true" aria-label="APIバッチサイズ（必須）" aria-describedby="sequential_api_batch_size_help">
+                            <small id="sequential_api_batch_size_help">API に1回で渡す施設件数</small>
                         </div>
 
                         <div class="form-group">
                             <label for="sequential_max_wait_minutes">max_wait_minutes *</label>
-                            <input type="number" id="sequential_max_wait_minutes" value="90" min="1" required>
-                            <small>BrightData スナップショット待機時間（分）</small>
+                            <input type="number" id="sequential_max_wait_minutes" value="90" min="1" required aria-required="true" aria-label="BrightData待機時間分数（必須）" aria-describedby="sequential_max_wait_minutes_help">
+                            <small id="sequential_max_wait_minutes_help">BrightData スナップショット待機時間（分）</small>
                         </div>
 
                         <div class="form-group">
                             <label for="sequential_dataset_id">dataset_id *</label>
-                            <input type="text" id="sequential_dataset_id" value="gd_luzfs1dn2oa0teb81" required>
-                            <small>BrightData Dataset ID</small>
+                            <input type="text" id="sequential_dataset_id" value="gd_luzfs1dn2oa0teb81" required aria-required="true" aria-label="BrightData Dataset ID（必須）" aria-describedby="sequential_dataset_id_help">
+                            <small id="sequential_dataset_id_help">BrightData Dataset ID</small>
                         </div>
 
                         <div class="form-group">
                             <label for="sequential_skip_column">skip_column *</label>
-                            <input type="text" id="sequential_skip_column" value="web" required>
-                            <small>この列が空の行は処理しません</small>
+                            <input type="text" id="sequential_skip_column" value="web" required aria-required="true" aria-label="skip列名（必須）" aria-describedby="sequential_skip_column_help">
+                            <small id="sequential_skip_column_help">この列が空の行は処理しません</small>
                         </div>
                     </div>
 
@@ -247,8 +247,8 @@
 
                         <div class="form-group">
                             <label for="sequential_report_days">report_days</label>
-                            <input type="number" id="sequential_report_days" value="10" min="1">
-                            <small>空欄で全期間。レポート生成時のみ使用します</small>
+                            <input type="number" id="sequential_report_days" value="10" min="1" aria-label="レポート生成対象日数" aria-describedby="sequential_report_days_help">
+                            <small id="sequential_report_days_help">空欄で全期間。レポート生成時のみ使用します</small>
                         </div>
                     </div>
                 </div>

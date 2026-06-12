@@ -175,13 +175,30 @@ const PRESETS = {
                 sequential_report_days: '10'
             }
         },
-        'dental_new_hokkaido': {
-            name: '🦷 北海道レビュー取得',
-            description: '北海道の dental_new 系 CSV を逐次処理',
+        'marriage_consultation': {
+            name: '💍 結婚相談所レビュー取得',
+            description: '結婚相談所データから60日分のレビューを逐次取得',
             params: {
-                sequential_csv_file: 'results/dental_new_hokkaido.csv',
-                sequential_output_file: 'results/dental_new_reviews_hokkaido.csv',
-                sequential_days_back: '10',
+                sequential_csv_file: 'results/add_data_marriage_kihon.csv',
+                sequential_output_file: 'results/marriage_consultation_reviews.csv',
+                sequential_days_back: '60',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'GoogleMap',
+                sequential_report_days: '60'
+            }
+        },
+        'funeral_home': {
+            name: '⚰️ 葬儀場レビュー取得',
+            description: '葬儀場データから60日分のレビューを逐次取得',
+            params: {
+                sequential_csv_file: 'results/funeral.csv',
+                sequential_output_file: 'results/funeral_reviews.csv',
+                sequential_days_back: '60',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
                 sequential_batch_wait: '120',
@@ -189,7 +206,24 @@ const PRESETS = {
                 sequential_max_wait_minutes: '90',
                 sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
                 sequential_skip_column: 'web',
-                sequential_report_days: '10'
+                sequential_report_days: '60'
+            }
+        },
+        'dental_clinic': {
+            name: '🦷 歯科クリニックレビュー取得',
+            description: '歯科クリニックデータから60日分のレビューを逐次取得',
+            params: {
+                sequential_csv_file: 'results/dental_new.csv',
+                sequential_output_file: 'results/dental_clinic_reviews.csv',
+                sequential_days_back: '60',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_report_days: '60'
             }
         }
     },
@@ -367,8 +401,6 @@ async function loadFileOptions() {
             const resultEntries = filesData.results || [];
             staticSettings = normalizeFileEntries(settingsEntries, 'settings', inferSettingsPurposes);
             staticResults = normalizeFileEntries(resultEntries, 'results', inferResultsPurposes);
-        } else {
-            console.log('files.json not found');
         }
 
         // データはプライベートリポジトリにあるため GitHub API による live fetch は行わない
@@ -423,9 +455,8 @@ async function loadFileOptions() {
         populateDropdown('facility_custom_facility_file', facilityFiles, 'results', true);
         populateDropdown('facility_custom_exclude_gids_path', excludeFiles, 'settings', true);
         
-        console.log('✅ ファイルオプションの読み込み完了');
     } catch (error) {
-        console.error('❌ ファイルオプションの読み込みエラー:', error);
+        console.error('ファイルオプションの読み込みエラー:', error);
     }
 }
 
@@ -447,10 +478,8 @@ function applyPreset(presetKey) {
     }
     
     // プリセットのパラメータを適用
-    console.log('🎯 Applying preset:', presetKey, preset.params);
     Object.entries(preset.params).forEach(([key, value]) => {
         const input = document.getElementById(key);
-        console.log(`  Applying ${key} = ${value}, element:`, input);
         
         if (input) {
             // selectの場合
@@ -458,24 +487,17 @@ function applyPreset(presetKey) {
                 // 値が空文字の場合は最初のオプションを選択
                 if (value === '') {
                     input.selectedIndex = 0;
-                    console.log(`    ✅ Set ${key} to first option (empty)`);
                 } else {
                     // 指定された値のオプションを探して選択
                     const option = Array.from(input.options).find(opt => opt.value === value);
                     if (option) {
                         input.value = value;
-                        console.log(`    ✅ Set ${key} = ${value}`);
-                    } else {
-                        console.warn(`    ❌ Option not found for ${key}: ${value}. Available:`, Array.from(input.options).map(o => o.value));
                     }
                 }
             } else {
                 // text/numberの場合はそのまま設定（空文字も含む）
                 input.value = value;
-                console.log(`    ✅ Set ${key} = ${value}`);
             }
-        } else {
-            console.warn(`  ❌ Element not found: ${key}`);
         }
     });
     
@@ -502,6 +524,7 @@ function updatePresetOptions() {
         btn.className = 'preset-btn';
         btn.innerHTML = `${preset.name}<br><small>${preset.description}</small>`;
         btn.onclick = () => applyPreset(key);
+        btn.setAttribute('aria-label', `プリセット: ${preset.name}。${preset.description}`);
         presetContainer.appendChild(btn);
     });
 }
@@ -698,7 +721,8 @@ function getFormData() {
             data.dataset_id = document.getElementById('sequential_dataset_id').value.trim();
             data.skip_column = document.getElementById('sequential_skip_column').value.trim();
             data.generate_report = document.getElementById('sequential_generate_report').checked;
-            data.report_days = document.getElementById('sequential_report_days').value.trim();
+            const reportDaysValue = document.getElementById('sequential_report_days').value.trim();
+            data.report_days = reportDaysValue || null; // 空の場合はnull（全期間を意味する）
             break;
             
         case 'reviews_auto_batch':
@@ -918,12 +942,7 @@ function hidePreview() {
 
 // GitHubでIssueを開く
 function openIssue() {
-    console.log('🔵 openIssue() が呼ばれました');
-    console.log('currentWorkflow:', currentWorkflow);
-    console.log('issueData:', issueData);
-    
     if (!issueData || !issueData.body) {
-        console.error('❌ issueData が空です');
         alert('⚠️ エラー: Issue データが見つかりません。もう一度やり直してください。');
         return;
     }
@@ -939,26 +958,18 @@ function openIssue() {
     const body = encodeURIComponent(issueData.body);
     const url = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/issues/new?title=${encodeURIComponent(title)}&body=${body}`;
     
-    console.log('🔗 生成されたURL:', url);
-    console.log('🔗 URL長:', url.length);
-    
-    // Braveのポップアップブロック対策
+    // ポップアップを開く
     const newWindow = window.open(url, '_blank');
     
     if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-        console.warn('⚠️ ポップアップがブロックされました');
         alert('⚠️ ポップアップがブロックされました。\n\nBraveの設定で「このサイトのポップアップを許可」してください。\n\n以下のURLをコピーしてブラウザで開いてください:\n' + url);
         
         // クリップボードにコピーを試みる
         if (navigator.clipboard) {
-            navigator.clipboard.writeText(url).then(() => {
-                console.log('✅ URLをクリップボードにコピーしました');
-            }).catch(err => {
-                console.error('❌ クリップボードへのコピー失敗:', err);
+            navigator.clipboard.writeText(url).catch(err => {
+                console.error('クリップボードへのコピー失敗');
             });
         }
-    } else {
-        console.log('✅ 新しいタブが開きました');
     }
 }
 
