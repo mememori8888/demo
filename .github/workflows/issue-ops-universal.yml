@@ -16,7 +16,6 @@ jobs:
     if: |
       (github.event_name == 'issues' && (
         contains(github.event.issue.body, '/run-reviews-sequential') ||
-        contains(github.event.issue.body, '/run-reviews-auto-batch') ||
         contains(github.event.issue.body, '/run-reviews') ||
         contains(github.event.issue.body, '/run-facility')
       )) ||
@@ -94,8 +93,6 @@ jobs:
           # ワークフロータイプを検出
           if echo "$ISSUE_BODY" | grep -q "/run-reviews-sequential"; then
             WORKFLOW="reviews_sequential"
-          elif echo "$ISSUE_BODY" | grep -q "/run-reviews-auto-batch"; then
-            WORKFLOW="reviews_auto_batch"
           elif echo "$ISSUE_BODY" | grep -q "/run-reviews"; then
             WORKFLOW="reviews"
           elif echo "$ISSUE_BODY" | grep -q "/run-facility"; then
@@ -134,18 +131,7 @@ jobs:
           details = "Calculation failed"
 
           try:
-              if workflow == "reviews_auto_batch":
-                batch_size = params.get("batch_size")
-                max_parallel = params.get("max_parallel_jobs")
-                if batch_size and str(batch_size).isdigit():
-                  n = int(batch_size)
-                  parallel = int(max_parallel) if max_parallel and str(max_parallel).isdigit() else 1
-                  requests = n * parallel * 5
-                  details = f"{n} per batch * {parallel} batches * 5 reqs"
-                else:
-                  details = "batch_size is missing or invalid"
-
-              elif workflow == "reviews":
+              if workflow == "reviews":
                   count = params.get("process_count")
                   if count and str(count).isdigit():
                       n = int(count)
@@ -187,7 +173,6 @@ jobs:
             
             const workflowNames = {
               'reviews_sequential': '⚡ レビュー取得・新仕様逐次実行',
-              'reviews_auto_batch': '🚀 レビュー取得・自動分割',
               'reviews': '📝 レビュー取得',
               'facility': '🏢 施設データ取得'
             };
@@ -228,7 +213,6 @@ jobs:
             const params = JSON.parse(process.env.PARAMS_JSON || '{}');
             const workflowNames = {
               'reviews_sequential': '⚡ レビュー取得・新仕様逐次実行',
-              'reviews_auto_batch': '🚀 レビュー取得・自動分割',
               'reviews': '📝 レビュー取得',
               'facility': '🏢 施設データ取得'
             };
@@ -241,11 +225,6 @@ jobs:
               if (params.rows_per_batch) details.push(`- **1バッチ行数**: \`${params.rows_per_batch}\``);
               if (params.api_batch_size) details.push(`- **API Batch Size**: \`${params.api_batch_size}\``);
             }
-            if (workflow === 'reviews_auto_batch') {
-              if (params.batch_size) details.push(`- **バッチサイズ**: \`${params.batch_size}\``);
-              if (params.max_parallel_jobs) details.push(`- **最大並列バッチ数**: \`${params.max_parallel_jobs}\``);
-            }
-            
             // review_fileの取得 (トップレベル or custom_settings内)
             const reviewFile = params.output_file || params.review_file || (params.custom_settings && params.custom_settings.review_file);
             if (reviewFile) details.push(`- **出力ファイル**: \`${reviewFile}\``);
@@ -319,7 +298,6 @@ jobs:
 
           workflow_files = {
               "reviews": ".github/workflows/brightdata_reviews.yml",
-              "reviews_auto_batch": ".github/workflows/brightdata_reviews.yml",
               "reviews_sequential": ".github/workflows/reviews_local_interactive_sequential.yml",
           }
           required_scripts = {
@@ -346,11 +324,6 @@ jobs:
               if fid_file and not os.path.exists(data_path(fid_file)):
                   errors.append(f"指定された fid_file が存在しません: {fid_file}")
 
-          if workflow == "reviews_auto_batch":
-              for key in ["fid_file", "batch_size", "max_parallel_jobs"]:
-                  if not params.get(key):
-                      errors.append(f"reviews_auto_batch では {key} が必須です。")
-
           if workflow == "reviews_sequential":
               csv_file = params.get("csv_file")
               output_file = params.get("output_file")
@@ -373,6 +346,16 @@ jobs:
                               errors.append(f"{key} は1以上の整数を指定してください。")
                       except ValueError:
                           errors.append(f"{key} は整数を指定してください。")
+
+              max_parallel_jobs = params.get("max_parallel_jobs", "3")
+              try:
+                  max_parallel_value = int(str(max_parallel_jobs))
+                  if max_parallel_value < 1:
+                      errors.append("max_parallel_jobs は1以上の整数を指定してください。")
+                  if max_parallel_value > 3:
+                      errors.append("max_parallel_jobs は3以下を指定してください。")
+              except ValueError:
+                  errors.append("max_parallel_jobs は整数を指定してください。")
 
               if not params.get("dataset_id"):
                   errors.append("reviews_sequential では dataset_id が必須です。")
@@ -432,20 +415,6 @@ jobs:
       review_file: ${{ fromJson(needs.parse-and-route.outputs.params).review_file || fromJson(needs.parse-and-route.outputs.params).custom_settings.review_file }}
       workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
 
-  run-reviews-auto-batch:
-    needs: [parse-and-route, validate-request]
-    if: needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews_auto_batch'
-    uses: ./.github/workflows/brightdata_reviews.yml
-    secrets: inherit
-    with:
-      config_file: ${{ fromJson(needs.parse-and-route.outputs.params).config_file || 'settings/settings.json' }}
-      fid_file: ${{ fromJson(needs.parse-and-route.outputs.params).fid_file }}
-      task_name: ${{ fromJson(needs.parse-and-route.outputs.params).task_name }}
-      start_line: ${{ fromJson(needs.parse-and-route.outputs.params).start_line }}
-      process_count: ${{ fromJson(needs.parse-and-route.outputs.params).batch_size }}
-      review_file: ${{ fromJson(needs.parse-and-route.outputs.params).review_file }}
-      workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
-
   run-reviews-sequential:
     needs: [parse-and-route, validate-request]
     if: needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true' && needs.parse-and-route.outputs.workflow_type == 'reviews_sequential'
@@ -461,6 +430,7 @@ jobs:
       rows_per_batch: ${{ fromJson(needs.parse-and-route.outputs.params).rows_per_batch || '500' }}
       batch_wait: ${{ fromJson(needs.parse-and-route.outputs.params).batch_wait || '120' }}
       api_batch_size: ${{ fromJson(needs.parse-and-route.outputs.params).api_batch_size || '50' }}
+      max_parallel_jobs: ${{ fromJson(needs.parse-and-route.outputs.params).max_parallel_jobs || '3' }}
       max_wait_minutes: ${{ fromJson(needs.parse-and-route.outputs.params).max_wait_minutes || '90' }}
       dataset_id: ${{ fromJson(needs.parse-and-route.outputs.params).dataset_id || 'gd_luzfs1dn2oa0teb81' }}
       skip_column: ${{ fromJson(needs.parse-and-route.outputs.params).skip_column || 'web' }}
@@ -545,7 +515,7 @@ jobs:
           fi
 
   report-completion:
-    needs: [parse-and-route, validate-request, run-reviews, run-reviews-sequential, run-reviews-auto-batch, run-facility]
+    needs: [parse-and-route, validate-request, run-reviews, run-reviews-sequential, run-facility]
     runs-on: ubuntu-latest
     if: always() && needs.parse-and-route.outputs.should_run == 'true' && needs.validate-request.outputs.should_execute == 'true'
     
@@ -561,7 +531,6 @@ jobs:
             const path = require('path');
             
             const jobs = {
-              'reviews_auto_batch': '${{ needs.run-reviews-auto-batch.result }}',
               'reviews_sequential': '${{ needs.run-reviews-sequential.result }}',
               'reviews': '${{ needs.run-reviews.result }}',
               'facility': '${{ needs.run-facility.result }}'
@@ -597,7 +566,7 @@ jobs:
                   const facilityName = path.basename(facilityFile, '.csv');
                   files.push(`- 🔑 **FIDファイル**: \`results/${facilityName}_fid.csv\`（プライベートリポジトリ）`);
                 }
-              } else if (workflow === 'reviews' || workflow === 'reviews_auto_batch' || workflow === 'reviews_sequential') {
+              } else if (workflow === 'reviews' || workflow === 'reviews_sequential') {
                 const reviewFile = params.output_file || params.review_file || params.custom_review_file;
                 if (reviewFile) {
                   files.push(`- ⭐ **レビューファイル**: \`${reviewFile}\`（プライベートリポジトリ）`);

@@ -167,6 +167,7 @@ const PRESETS = {
                 sequential_days_back: '10',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
                 sequential_batch_wait: '120',
                 sequential_api_batch_size: '50',
                 sequential_max_wait_minutes: '90',
@@ -184,6 +185,7 @@ const PRESETS = {
                 sequential_days_back: '60',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
                 sequential_batch_wait: '120',
                 sequential_api_batch_size: '50',
                 sequential_max_wait_minutes: '90',
@@ -201,6 +203,7 @@ const PRESETS = {
                 sequential_days_back: '60',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
                 sequential_batch_wait: '120',
                 sequential_api_batch_size: '50',
                 sequential_max_wait_minutes: '90',
@@ -218,47 +221,13 @@ const PRESETS = {
                 sequential_days_back: '60',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
                 sequential_batch_wait: '120',
                 sequential_api_batch_size: '50',
                 sequential_max_wait_minutes: '90',
                 sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
                 sequential_skip_column: 'web',
                 sequential_report_days: '60'
-            }
-        }
-    },
-    reviews_auto_batch: {
-        'dental_80k': {
-            name: '🦷 歯科レビュー・8万件自動分割',
-            description: '8万件の施設データを2並列バッチで処理（4.5時間）',
-            params: {
-                auto_batch_fid_file: 'results/dental_fid.csv',
-                auto_batch_review_file: 'results/dental_review.csv',
-                auto_batch_size: '10000',
-                auto_batch_max_parallel: '2',
-                auto_batch_workers: '10'
-            }
-        },
-        'dental_80k_fast': {
-            name: '🚀 歯科レビュー・8万件高速',
-            description: '8万件を4並列バッチで高速処理（2.2時間）',
-            params: {
-                auto_batch_fid_file: 'results/dental_fid.csv',
-                auto_batch_review_file: 'results/dental_review.csv',
-                auto_batch_size: '10000',
-                auto_batch_max_parallel: '4',
-                auto_batch_workers: '15'
-            }
-        },
-        'test_20k': {
-            name: '🧪 テスト2万件',
-            description: '2万件のデータでバッチ処理テスト（67分）',
-            params: {
-                auto_batch_fid_file: 'results/fid.csv',
-                auto_batch_review_file: 'results/test_review.csv',
-                auto_batch_size: '10000',
-                auto_batch_max_parallel: '2',
-                auto_batch_workers: '10'
             }
         }
     }
@@ -310,15 +279,31 @@ function populateDropdown(selectId, files, pathPrefix = '', allowNew = true) {
 }
 
 function getSequentialInputFiles(resultEntries) {
-    return resultEntries
+    const fromPurpose = resultEntries
         .filter(entry => hasPurpose(entry, 'sequential_input'))
+        .map(entry => entry.name);
+
+    if (fromPurpose.length > 0) {
+        return fromPurpose;
+    }
+
+    return resultEntries
+        .filter(entry => entry.extension === '.csv')
+        .filter(entry => !hasPurpose(entry, 'review_output'))
+        .filter(entry => !hasPurpose(entry, 'fid_input'))
         .map(entry => entry.name);
 }
 
 function buildSequentialOutputCandidates(selectedInputPath = '') {
-    const existingReviewFiles = fileCache.results
+    const reviewFilesByPurpose = fileCache.results
         .filter(entry => hasPurpose(entry, 'review_output'))
         .map(entry => entry.name);
+    const existingReviewFiles = reviewFilesByPurpose.length > 0
+        ? reviewFilesByPurpose
+        : fileCache.results
+            .filter(entry => entry.extension === '.csv')
+            .map(entry => entry.name)
+            .filter(name => name.toLowerCase().includes('review'));
 
     const candidates = [];
     const seen = new Set();
@@ -420,11 +405,20 @@ async function loadFileOptions() {
         populateDropdown('custom_facility_file', facilityFiles, 'results');
         
         // レビューファイル
-        const reviewFiles = fileCache.results.filter(entry => hasPurpose(entry, 'review_output')).map(entry => entry.name);
+        const reviewFilesByPurpose = fileCache.results.filter(entry => hasPurpose(entry, 'review_output')).map(entry => entry.name);
+        const reviewFiles = reviewFilesByPurpose.length > 0
+            ? reviewFilesByPurpose
+            : resultsCsvFiles.filter(name => name.toLowerCase().includes('review'));
         populateDropdown('custom_review_file', reviewFiles, 'results');
         
         // FIDファイル
-        const fidFiles = fileCache.results.filter(entry => hasPurpose(entry, 'fid_input')).map(entry => entry.name);
+        const fidFilesByPurpose = fileCache.results.filter(entry => hasPurpose(entry, 'fid_input')).map(entry => entry.name);
+        const fidFiles = fidFilesByPurpose.length > 0
+            ? fidFilesByPurpose
+            : resultsCsvFiles.filter(name => {
+                const lowerName = name.toLowerCase();
+                return lowerName.includes('fid') || lowerName.includes('add_data');
+            });
         populateDropdown('fid_file', fidFiles, 'results', false);
         
         // 更新施設ファイル (results/*add_data.csv)
@@ -446,9 +440,6 @@ async function loadFileOptions() {
         const sequentialInputFiles = getSequentialInputFiles(fileCache.results);
         populateDropdown('sequential_csv_file', sequentialInputFiles, 'results', false);
         refreshSequentialOutputOptions();
-        // Reviews Auto-Batch workflow用のドロップダウンを設定
-        populateDropdown('auto_batch_fid_file', fidFiles, 'results', false);
-        populateDropdown('auto_batch_review_file', reviewFiles, 'results', true);
         
         // Facility workflow用のドロップダウンを設定
         populateDropdown('facility_custom_address_csv', settingsCsvFiles, 'settings', true);
@@ -577,22 +568,6 @@ function validateFormEnhanced() {
         if (processCount < 0) errors.push('処理件数は0以上を指定してください');
     }
 
-    if (currentWorkflow === 'reviews_auto_batch') {
-        const batchSize = parseInt(document.getElementById('auto_batch_size')?.value || '0');
-        const maxParallel = parseInt(document.getElementById('auto_batch_max_parallel')?.value || '0');
-        const workers = parseInt(document.getElementById('auto_batch_workers')?.value || '0');
-
-        if (!Number.isInteger(batchSize) || batchSize < 5000 || batchSize > 20000) {
-            errors.push('バッチサイズは5,000〜20,000の範囲で指定してください');
-        }
-        if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 8) {
-            errors.push('最大並列バッチ数は1〜8の範囲で指定してください');
-        }
-        if (!Number.isInteger(workers) || workers < 5 || workers > 20) {
-            errors.push('並列実行数（バッチ内）は5〜20の範囲で指定してください');
-        }
-    }
-
     if (currentWorkflow === 'reviews_sequential') {
         const csvFile = document.getElementById('sequential_csv_file')?.value || '';
         const outputFile = document.getElementById('sequential_output_file')?.value || '';
@@ -600,6 +575,7 @@ function validateFormEnhanced() {
         const daysBack = parseInt(document.getElementById('sequential_days_back')?.value || '0');
         const startFromBatch = parseInt(document.getElementById('sequential_start_from_batch')?.value || '0');
         const rowsPerBatch = parseInt(document.getElementById('sequential_rows_per_batch')?.value || '0');
+        const sequentialMaxParallel = parseInt(document.getElementById('sequential_max_parallel_jobs')?.value || '0');
         const batchWait = parseInt(document.getElementById('sequential_batch_wait')?.value || '0');
         const apiBatchSize = parseInt(document.getElementById('sequential_api_batch_size')?.value || '0');
         const maxWaitMinutes = parseInt(document.getElementById('sequential_max_wait_minutes')?.value || '0');
@@ -620,6 +596,9 @@ function validateFormEnhanced() {
         }
         if (!Number.isInteger(rowsPerBatch) || rowsPerBatch < 1) {
             errors.push('rows_per_batch は1以上の整数を指定してください');
+        }
+        if (!Number.isInteger(sequentialMaxParallel) || sequentialMaxParallel < 1 || sequentialMaxParallel > 3) {
+            errors.push('max_parallel_jobs は1〜3の整数を指定してください');
         }
         if (!Number.isInteger(batchWait) || batchWait < 1) {
             errors.push('batch_wait は1以上の整数を指定してください');
@@ -715,6 +694,7 @@ function getFormData() {
             data.days_back = document.getElementById('sequential_days_back').value;
             data.start_from_batch = document.getElementById('sequential_start_from_batch').value;
             data.rows_per_batch = document.getElementById('sequential_rows_per_batch').value;
+            data.max_parallel_jobs = document.getElementById('sequential_max_parallel_jobs').value;
             data.batch_wait = document.getElementById('sequential_batch_wait').value;
             data.api_batch_size = document.getElementById('sequential_api_batch_size').value;
             data.max_wait_minutes = document.getElementById('sequential_max_wait_minutes').value;
@@ -723,15 +703,6 @@ function getFormData() {
             data.generate_report = document.getElementById('sequential_generate_report').checked;
             const reportDaysValue = document.getElementById('sequential_report_days').value.trim();
             data.report_days = reportDaysValue || null; // 空の場合はnull（全期間を意味する）
-            break;
-            
-        case 'reviews_auto_batch':
-            data.config_file = 'settings/settings.json'; // 固定値
-            data.fid_file = document.getElementById('auto_batch_fid_file').value;
-            data.review_file = document.getElementById('auto_batch_review_file').value;
-            data.batch_size = document.getElementById('auto_batch_size').value;
-            data.max_parallel_jobs = document.getElementById('auto_batch_max_parallel').value;
-            data.workers = document.getElementById('auto_batch_workers').value;
             break;
             
         case 'facility':
@@ -814,7 +785,6 @@ function generateIssueBody(data) {
     const commandMap = {
         'reviews': '/run-reviews',
         'reviews_sequential': '/run-reviews-sequential',
-        'reviews_auto_batch': '/run-reviews-auto-batch',
         'facility': '/run-facility'
     };
     
@@ -854,6 +824,7 @@ function generateIssueBody(data) {
             body += `- **Days back**: ${data.days_back}日\n`;
             body += `- **開始バッチ**: ${data.start_from_batch}\n`;
             body += `- **1バッチ行数**: ${data.rows_per_batch}\n`;
+            body += `- **最大並列バッチ数**: ${data.max_parallel_jobs}バッチ同時実行\n`;
             body += `- **バッチ間待機**: ${data.batch_wait}秒\n`;
             body += `- **API Batch Size**: ${data.api_batch_size}\n`;
             body += `- **待機時間上限**: ${data.max_wait_minutes}分\n`;
@@ -863,43 +834,6 @@ function generateIssueBody(data) {
             if (data.report_days) {
                 body += `- **レポート日数**: ${data.report_days}日\n`;
             }
-            break;
-            
-        case 'reviews_auto_batch':
-            body += `### 🚀 レビュー取得・自動分割実行\n\n`;
-            body += `大量データを自動的にバッチ分割して5時間以内に完了させます。\n\n`;
-            body += `#### 📊 設定内容\n\n`;
-            body += `- **設定ファイル**: \`${data.config_file}\`\n`;
-            if (data.fid_file) {
-                body += `- **FIDファイル**: \`${data.fid_file}\`\n`;
-            }
-            if (data.review_file) {
-                body += `- **レビューファイル**: \`${data.review_file}\`（バッチごとに番号付与）\n`;
-            }
-            body += `- **バッチサイズ**: ${data.batch_size}件/バッチ\n`;
-            body += `- **最大並列バッチ数**: ${data.max_parallel_jobs}バッチ同時実行\n`;
-            body += `- **バッチ内並列数**: ${data.workers}施設同時処理\n`;
-            
-            // 推定時間を計算（簡易版）
-            const batchSize = parseInt(data.batch_size);
-            const maxParallel = parseInt(data.max_parallel_jobs);
-            const workers = parseInt(data.workers);
-            const timePerBatch = Math.ceil(batchSize / workers / 10); // 10件/分/worker
-            
-            body += `\n#### ⏱️ 推定処理時間（データ件数による）\n\n`;
-            body += `| データ件数 | バッチ数 | 推定時間 |\n`;
-            body += `|-----------|---------|----------|\n`;
-            body += `| 20,000件 | 2バッチ | 約${Math.ceil(timePerBatch * 2 / maxParallel)}分 |\n`;
-            body += `| 40,000件 | 4バッチ | 約${Math.ceil(timePerBatch * 4 / maxParallel)}分 |\n`;
-            body += `| 80,000件 | 8バッチ | 約${Math.ceil(timePerBatch * 8 / maxParallel)}分 |\n`;
-            
-            body += `\n#### 🎯 自動処理フロー\n\n`;
-            body += `1. データ件数を自動カウント\n`;
-            body += `2. 20,000件以上の場合、自動的にバッチ分割\n`;
-            body += `3. ${maxParallel}バッチずつ並列実行\n`;
-            body += `4. 各バッチの進捗をIssueに通知\n`;
-            body += `5. 全バッチ完了後、結果を自動統合\n`;
-            body += `6. 統合結果を\`results/\`フォルダに保存\n`;
             break;
             
         case 'facility':
@@ -950,7 +884,6 @@ function openIssue() {
     const workflowNames = {
         'reviews': 'Reviews Job',
         'reviews_sequential': 'Reviews Sequential Job',
-        'reviews_auto_batch': 'Reviews Auto-Batch Job',
         'facility': 'Facility Job'
     };
     

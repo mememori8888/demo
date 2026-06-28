@@ -1,1204 +1,292 @@
-name: brightdata_reviews_新仕様
-
-# 地域別ファイルへの書き込みは並列実行OK
-# 複数実行の同時実行を許可（重複はreview idで後から削除可能）
+name: BrightData dental new reviews parallel batches
 
 on:
   workflow_dispatch:
     inputs:
       csv_file:
-        description: '処理対象のCSVファイル (例: results/dental_new.csv)'
+        description: 'Input CSV file'
         required: true
         default: 'results/dental_new_hokkaido.csv'
       output_file:
-        description: 'レビューを保存するCSVファイル (例: results/dental_new_reviews.csv)'
+        description: 'Merged review output CSV'
         required: true
         default: 'results/dental_new_reviews_hokkaido.csv'
       merge_to_all_regions:
-        description: '完了後に全地域ファイルをマージするか'
+        description: 'Merge output into all_regions_file'
         required: false
         default: true
         type: boolean
       all_regions_file:
-        description: 'マージ先の全地域ファイル'
+        description: 'All regions review CSV'
         required: false
         default: 'results/dental_new_reviews_all_regions.csv'
       days_back:
-        description: '何日前までのレビューを取得するか (例: 10)'
+        description: 'Days back'
         required: true
         default: '10'
       start_from_batch:
-        description: '【再開用】開始するバッチ番号 (通常は1のまま)'
+        description: 'Start from batch number'
         required: false
         default: '1'
+      rows_per_batch:
+        description: 'Rows per batch'
+        required: false
+        default: '500'
+      api_batch_size:
+        description: 'API batch size'
+        required: false
+        default: '50'
+      max_parallel_jobs:
+        description: 'Maximum parallel Docker batches'
+        required: false
+        default: '3'
+      max_wait_minutes:
+        description: 'Snapshot wait minutes'
+        required: false
+        default: '90'
+      dataset_id:
+        description: 'BrightData Dataset ID'
+        required: false
+        default: 'gd_luzfs1dn2oa0teb81'
+      skip_column:
+        description: 'Skip rows when this column is empty'
+        required: false
+        default: 'web'
       generate_report:
-        description: '完了後にレビュー増減レポートを生成するか'
+        description: 'Generate report'
         required: true
         default: true
         type: boolean
       report_days:
-        description: '【レポート用】何日間の増減を分析するか (空欄=全期間)'
+        description: 'Report days'
         required: false
         default: '10'
-      skip_column:
-        description: 'スキップ判定に使う列名 (この列が空の行は処理しない)'
-        required: false
-        default: 'web'
+
+permissions:
+  contents: write
+  actions: read
 
 jobs:
-  # レビュー取得ジョブ（並列実行可能）
-  sequential-review-fetch:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # GitHub Actions上限6時間より少し短く設定
-    
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      total_rows: ${{ steps.plan.outputs.total_rows }}
+      total_batches: ${{ steps.plan.outputs.total_batches }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Pull latest CSV
-        run: |
-          git pull origin main
-          echo "✅ 最新のCSVを取得しました"
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          python-version: '3.12'
-      
-      - name: Install dependencies
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+      - name: Copy private data
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: Validate Environment
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+      - name: Build dynamic matrix
+        id: plan
         env:
-          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          CSV_FILE: ${{ inputs.csv_file }}
+          ROWS_PER_BATCH: ${{ inputs.rows_per_batch }}
+          START_FROM_BATCH: ${{ inputs.start_from_batch }}
+          MAX_PARALLEL_JOBS: ${{ inputs.max_parallel_jobs }}
         run: |
-          echo "🔍 環境検証中..."
-          echo ""
-          
-          # 1️⃣ APIトークンの確認
-          if [ -z "${{ secrets.BRIGHTDATA_API_TOKEN }}" ]; then
-            echo "❌ エラー: BRIGHTDATA_API_TOKEN が設定されていません"
-            echo ""
-            echo "解決策："
-            echo "1. GitHub リポジトリの Settings → Secrets and variables → Actions (Secrets) を開く"
-            echo "2. BRIGHTDATA_API_TOKEN を追加する"
-            echo "3. BrightData の API トークンを入力して保存"
-            exit 1
-          fi
-          echo "✅ APIトークン: 設定済み"
-          
-          # 2️⃣ APIトークン有効性テスト
-          echo ""
-          echo "🧪 API トークン有効性をテスト中..."
-          VALIDATE_RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -H "Authorization: Bearer ${{ secrets.BRIGHTDATA_API_TOKEN }}" \
-            "https://api.brightdata.com/datasets/v3/progress/test" 2>&1 || echo "CURL_ERROR\n000")
-          
-          HTTP_CODE=$(echo "$VALIDATE_RESPONSE" | tail -1)
-          RESPONSE_BODY=$(echo "$VALIDATE_RESPONSE" | head -n -1)
-          
-          echo "  └ HTTPステータスコード: $HTTP_CODE"
-          echo "  └ レスポンス: ${RESPONSE_BODY:0:200}"
-          
-          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-            echo "❌ エラー: APIトークンが無効です"
-            echo "  理由: HTTP $HTTP_CODE - 認証に失敗しました"
-            echo "  確認事項："
-            echo "  - トークンが正しくコピーされているか"
-            echo "  - トークンが期限切れでないか"
-            echo "  - トークンが正しいアカウントのものか"
-            exit 1
-          elif [ "$HTTP_CODE" = "000" ] || [ "$HTTP_CODE" = "" ]; then
-            echo "⚠️ 警告: ネットワーク接続確認できませんでした（オフライン環境の可能性）"
-            echo "  → 処理を続行します"
-          else
-            echo "✅ APIトークン: 検証成功 (HTTP $HTTP_CODE)"
-          fi
-          
-          # 3️⃣ 入力CSVファイルの確認
-          echo ""
-          if [ ! -f "${{ github.event.inputs.csv_file }}" ]; then
-            echo "❌ エラー: 入力CSVファイルが見つかりません"
-            echo "  パス: ${{ github.event.inputs.csv_file }}"
-            echo ""
-            echo "存在するファイル一覧:"
-            find results -name "*.csv" -type f | head -20
-            exit 1
-          fi
-          echo "✅ 入力CSV: ${{ github.event.inputs.csv_file }}"
-          
-          # 4️⃣ 行数確認
-          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
-          echo "✅ 総行数: ${TOTAL_ROWS}行（ヘッダー含む）"
-          
-          # ファイルサイズ確認
-          FILE_SIZE=$(du -h "${{ github.event.inputs.csv_file }}" | cut -f1)
-          echo "✅ ファイルサイズ: ${FILE_SIZE}"
-          
-          # 5️⃣ 出力ディレクトリの作成
-          echo ""
-          mkdir -p results/logs results/reports results/errors
-          echo "✅ 出力ディレクトリ: 準備完了"
-          
-          # 6️⃣ Pythonスクリプトの確認
-          if [ ! -f "get_reviews_from_dental_new.py" ]; then
-            echo "❌ エラー: get_reviews_from_dental_new.py が見つかりません"
-            exit 1
-          fi
-          echo "✅ スクリプト: get_reviews_from_dental_new.py"
-          
-          # 7️⃣ Pythonのメモリ確認
-          PYTHON_VERSION=$(python --version 2>&1)
-          echo "✅ Python版: $PYTHON_VERSION"
-          
-          echo ""
-          echo "=========================================="
-          echo "✅ 環境検証完了 - 処理を開始します"
-          echo "=========================================="
-      
-      - name: Sequential Batch Processing
-        id: sequential
+          python - <<'PY'
+          import json, math, os
+          from pathlib import Path
+          csv_file = Path(os.environ["CSV_FILE"])
+          rows_per_batch = int(os.environ["ROWS_PER_BATCH"])
+          start_from_batch = int(os.environ["START_FROM_BATCH"])
+          max_parallel_jobs = int(os.environ["MAX_PARALLEL_JOBS"])
+          if rows_per_batch < 1 or start_from_batch < 1:
+              raise SystemExit("rows_per_batch and start_from_batch must be greater than 0")
+          if not 1 <= max_parallel_jobs <= 3:
+              raise SystemExit("max_parallel_jobs must be between 1 and 3")
+          if not csv_file.exists():
+              raise SystemExit(f"CSV file not found: {csv_file}")
+          total_rows = max(sum(1 for _ in csv_file.open("r", encoding="utf-8-sig", errors="ignore")) - 1, 0)
+          total_batches = math.ceil(total_rows / rows_per_batch) if total_rows else 0
+          include = []
+          for batch in range(start_from_batch, total_batches + 1):
+              start_row = (batch - 1) * rows_per_batch + 1
+              end_row = min(batch * rows_per_batch, total_rows)
+              include.append({"batch_number": batch, "start_row": start_row, "end_row": end_row})
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"matrix={json.dumps({'include': include}, separators=(',', ':'))}\n")
+              out.write(f"total_rows={total_rows}\n")
+              out.write(f"total_batches={total_batches}\n")
+          print(f"total_rows={total_rows}, total_batches={total_batches}, selected_batches={len(include)}")
+          PY
+
+  run-batches:
+    needs: prepare
+    if: needs.prepare.outputs.total_batches != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJson(inputs.max_parallel_jobs) }}
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+      - name: Copy private data
+        run: |
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+          mkdir -p results/dental_new_parallel results/logs results/errors
+      - name: Run Docker batch
         env:
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
           ZONE_NAME: ${{ secrets.BRIGHTDATA_ZONE_NAME || 'serp_api2' }}
         run: |
-          # Git設定
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # ロックファイルのパス
-          LOCK_FILE="/tmp/git_operations.lock"
-          SNAPSHOT_WAITING_FLAG="/tmp/snapshot_waiting.flag"
-          
-          # Git操作用ロック取得関数（タイムアウト付き）
-          acquire_git_lock() {
-            local timeout=${1:-30}  # デフォルト30秒
-            local elapsed=0
-            
-            while [ $elapsed -lt $timeout ]; do
-              if mkdir "$LOCK_FILE" 2>/dev/null; then
-                echo "🔒 Gitロック取得成功"
-                return 0
-              fi
-              sleep 1
-              elapsed=$((elapsed + 1))
-            done
-            
-            echo "⚠️ Gitロック取得タイムアウト（${timeout}秒）"
-            return 1
-          }
-          
-          # Git操作用ロック解放関数
-          release_git_lock() {
-            if [ -d "$LOCK_FILE" ]; then
-              rmdir "$LOCK_FILE" 2>/dev/null
-              echo "🔓 Gitロック解放"
-            fi
-          }
-          
-          # タイムアウト前強制push関数
-          force_final_push() {
-            echo ""
-            echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
-            echo "⚠️  タイムアウト直前 - 緊急データ保存開始"
-            echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
-            
-            # ロック強制取得（緊急時は既存ロック削除）
-            release_git_lock
-            acquire_git_lock 10 || {
-              echo "⚠️ ロック強制解除"
-              release_git_lock
-            }
-            
-            # すべての変更をステージング
-            git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
-            git add results/dental_new_reviews_batch_*.csv 2>/dev/null || true
-            git add results/logs/*.log 2>/dev/null || true
-            
-            if ! git diff --staged --quiet 2>/dev/null; then
-              echo "💾 途中データを緊急コミット中..."
-              git commit -m "chore: Emergency save before timeout (batch ${CURRENT_BATCH:-unknown}/${TOTAL_BATCHES:-unknown})"
-              
-              # 必ずpushを試みる（最大3回）
-              for i in {1..3}; do
-                echo "🚨 緊急Push試行 $i/3..."
-                
-                # 前回のrebase状態をクリーンアップ
-                if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
-                  echo "⚠️ rebase状態クリーンアップ"
-                  git rebase --abort 2>/dev/null || true
-                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                fi
-                
-                # 最新を取得してrebase試行
-                git fetch origin main 2>/dev/null || true
-                git rebase origin/main 2>/dev/null || {
-                  # rebase失敗時はクリーンアップしてマージに切り替え
-                  git rebase --abort 2>/dev/null || true
-                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                  git pull origin main --no-rebase -X ours 2>/dev/null || true
-                }
-                
-                if git push origin main; then
-                  echo "✅ 緊急Push成功！データ保存完了"
-                  release_git_lock
-                  return 0
-                else
-                  echo "❌ 緊急Push失敗 (attempt $i/3)"
-                  sleep 2
-                fi
-              done
-              echo "⚠️ 緊急Pushに失敗しましたが、Artifactには保存されます"
-            else
-              echo "📝 保存すべき新しい変更はありません"
-            fi
-            release_git_lock
-          }
-          
-          # 定期自動保存関数（バッチ途中でも30分ごとに保存）
-          auto_save_periodically() {
-            local SAVE_INTERVAL=1800  # 30分（秒単位）
-            local SAVE_COUNT=0
-            
-            while true; do
-              sleep $SAVE_INTERVAL
-              SAVE_COUNT=$((SAVE_COUNT + 1))
-              
-              echo ""
-              echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
-              echo "⏰ 定期自動保存 #${SAVE_COUNT} (30分ごと)"
-              echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
-              
-              # 🔴 スナップショット待機中かチェック
-              if [ -f "$SNAPSHOT_WAITING_FLAG" ]; then
-                echo "⏸️ 定期自動保存 #${SAVE_COUNT} - スナップショット処理中のためスキップ"
-                echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
-                continue
-              fi
-              
-              # ロック取得試行（5秒でタイムアウト。バッチ処理を優先）
-              if ! acquire_git_lock 5; then
-                echo "⚠️ 定期自動保存 #${SAVE_COUNT} - Git操作中のためスキップ"
-                echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
-                continue
-              fi
-              
-              # すべての変更をステージング
-              git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
-              git add results/dental_new_reviews_batch_*.csv 2>/dev/null || true
-              
-              if ! git diff --staged --quiet 2>/dev/null; then
-                local TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-                git commit -m "chore: Auto-save checkpoint #${SAVE_COUNT} (${TIMESTAMP})"
-                
-                # Push試行（1回のみ、失敗してもOK）
-                # rebase状態をクリーンアップ
-                if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
-                  git rebase --abort 2>/dev/null || true
-                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                fi
-                
-                git fetch origin main 2>/dev/null || true
-                git rebase origin/main 2>/dev/null || {
-                  git rebase --abort 2>/dev/null || true
-                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                  git pull origin main --no-rebase -X ours 2>/dev/null || true
-                }
-                
-                if git push origin main 2>/dev/null; then
-                  echo "✅ 定期自動保存 #${SAVE_COUNT} - Push成功"
-                else
-                  echo "⚠️ 定期自動保存 #${SAVE_COUNT} - Push失敗（次回リトライ）"
-                fi
-              else
-                echo "📝 定期自動保存 #${SAVE_COUNT} - 新しい変更なし"
-              fi
-              
-              release_git_lock
-              echo "💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾💾"
-            done
-          }
-          
-          # シグナルトラップ設定（SIGTERM=GitHub Actionsタイムアウト）
-          trap 'force_final_push; exit 143' TERM INT
-          
-          # 定期自動保存をバックグラウンド起動（30分ごと）
-          auto_save_periodically &
-          AUTO_SAVE_PID=$!
-          echo "💾 定期自動保存を開始しました（30分間隔、PID: $AUTO_SAVE_PID）"
-          
-          # タイムアウト監視バックグラウンドプロセス（345分=5時間45分で警告）
-          (
-            sleep $((345 * 60))  # 345分待機
-            echo "TIMEOUT_WARNING" > /tmp/workflow_timeout_warning
-            echo ""
-            echo "⏰ タイムアウト5分前に達しました - 次のバッチ後に強制終了します"
-          ) &
-          TIMEOUT_WATCHER_PID=$!
-          
-          # CSVの総行数を取得
-          TOTAL_ROWS=$(wc -l < "${{ github.event.inputs.csv_file }}" | xargs)
-          TOTAL_ROWS=$((TOTAL_ROWS - 1))  # ヘッダー除く
-          
-          # ▼▼▼ 設定を環境変数として固定 ▼▼▼
-          CSV_BATCH_SIZE=500
-          WAIT_TIME=120
-          API_BATCH_SIZE=50  # 100→50に削減（タイムアウト対策）
-          MAX_WAIT_MINUTES=90  # 60→90分に延長（タイムアウト対策）
-          DATASET_ID="gd_luzfs1dn2oa0teb81"
-          # ▲▲▲ 設定を環境変数として固定 ▲▲▲
-          
-          START_BATCH=${{ github.event.inputs.start_from_batch }}
-          
-          TOTAL_BATCHES=$(( (TOTAL_ROWS + CSV_BATCH_SIZE - 1) / CSV_BATCH_SIZE ))
-          
-          echo "📊 処理概要:"
-          echo "  - 総行数: ${TOTAL_ROWS}"
-          echo "  - CSVバッチサイズ: ${CSV_BATCH_SIZE}行"
-          echo "  - 総バッチ数: ${TOTAL_BATCHES}"
-          echo "  - バッチ間待機: ${WAIT_TIME}秒"
-          echo "  - 開始バッチ: ${START_BATCH}"
-          echo "  - Dataset ID: ${DATASET_ID}"
-          echo "  - API Batch Size: ${API_BATCH_SIZE}件/回"
-          echo "  - API待機時間: ${MAX_WAIT_MINUTES}分"
-          echo "  - Days back: ${{ github.event.inputs.days_back }}"
-          echo "  - 💾 定期自動保存: 有効（30分間隔）"
-          echo "  - ⏰ タイムアウト監視: 有効（345分で警告）"
-          echo ""
-          
-          SUCCESS_COUNT=0
-          ERROR_COUNT=0
-          SKIP_COUNT=0
-          CURRENT_BATCH=0
-          
-          # バッチループ
-          for ((BATCH=$START_BATCH; BATCH<=TOTAL_BATCHES; BATCH++)); do
-            # 現在のバッチ番号を記録（緊急Push用）
-            CURRENT_BATCH=$BATCH
-            
-            START_ROW=$(( (BATCH - 1) * CSV_BATCH_SIZE + 1 ))
-            END_ROW=$(( BATCH * CSV_BATCH_SIZE ))
-            
-            if [ $END_ROW -gt $TOTAL_ROWS ]; then
-              END_ROW=$TOTAL_ROWS
-            fi
-            
-            echo "=========================================="
-            echo "🚀 バッチ ${BATCH}/${TOTAL_BATCHES} 開始"
-            echo "   範囲: 行${START_ROW}～${END_ROW}"
-            echo "=========================================="
-            
-            # 環境変数を設定
-            export INPUT_CSV="${{ github.event.inputs.csv_file }}"
-            export OUTPUT_CSV="${{ github.event.inputs.output_file }}"
-            export UPDATE_CSV="results/dental_new_reviews_batch_${BATCH}.csv"
-            export START_ROW=$START_ROW
-            export END_ROW=$END_ROW
-            export BATCH_SIZE=${API_BATCH_SIZE}
-            export DAYS_BACK=${{ github.event.inputs.days_back }}
-            export MAX_WAIT_MINUTES=${MAX_WAIT_MINUTES}
-            export BRIGHTDATA_DATASET_ID="${DATASET_ID}"
-            
-            # skip_column入力値を環境変数に設定
-            SKIP_COL="${{ github.event.inputs.skip_column }}"
-            if [ -z "$SKIP_COL" ]; then
-              SKIP_COL="web"
-            fi
-            export SKIP_COLUMN="$SKIP_COL"
-            
-            echo "========================================"
-            echo "🔍 スキップ判定列: [$SKIP_COLUMN]"
-            echo "========================================"
-            
-            # バッチ処理実行（リトライ付き）
-            RETRY_COUNT=0
-            MAX_RETRIES=3
-            BATCH_SUCCESS=false
-            ERROR_MESSAGE=""
-            
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              echo "🔄 実行試行 $((RETRY_COUNT + 1))/$MAX_RETRIES"
-              
-              # エラー内容をファイルに記録
-              ERROR_LOG="results/errors/batch_${BATCH}_attempt_$((RETRY_COUNT + 1)).log"
-              
-              if python get_reviews_from_dental_new.py 2>&1 | tee "$ERROR_LOG" | tee -a results/logs/batch_${BATCH}.log; then
-                BATCH_SUCCESS=true
-                echo "✅ バッチ ${BATCH} 実行成功"
-                break
-              else
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-                EXIT_CODE=$?
-                
-                # エラーメッセージを抽出
-                ERROR_MESSAGE=$(tail -n 20 "$ERROR_LOG" | grep -E "Error|❌|Exception|Traceback" | head -5)
-                
-                echo "❌ バッチ ${BATCH} 失敗（終了コード: $EXIT_CODE）"
-                echo "📋 エラーが記録されました: $ERROR_LOG"
-                
-                # エラー内容をまとめて出力
-                echo ""
-                echo "📝 エラー内容（最新50行）:"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                tail -n 50 "$ERROR_LOG" | head -n 50
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                echo ""
-                
-                # APIトークン関連のエラーか確認
-                if grep -q "401\|403\|Unauthorized\|Forbidden" "$ERROR_LOG"; then
-                  echo "🔴 認証エラー検出："
-                  echo "  → APIトークンが無効または期限切れの可能性があります"
-                  echo "  → GitHub Secrets の BRIGHTDATA_API_TOKEN を確認してください"
-                fi
-                
-                # ネットワークエラーか確認
-                if grep -q "Connection\|timeout\|ConnectionError\|Max retries" "$ERROR_LOG"; then
-                  echo "🔴 ネットワークエラー検出："
-                  echo "  → BrightData API への接続に失敗しました"
-                  echo "  → ネットワーク接続を確認してください"
-                fi
-                
-                # タイムアウトエラーか確認
-                if grep -q "Timeout\|timeout\|timed out" "$ERROR_LOG"; then
-                  echo "🟡 タイムアウトエラー検出："
-                  echo "  → API レスポンス待機がタイムアウトしました"
-                  echo "  → MAX_WAIT_MINUTES を増やすか、BATCH_SIZE を減らしてください"
-                fi
-                
-                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                  WAIT_RETRY=$((30 * RETRY_COUNT))
-                  echo "⏳ ${WAIT_RETRY}秒後にリトライします ($RETRY_COUNT/$MAX_RETRIES)"
-                  sleep $WAIT_RETRY
-                fi
-              fi
-            done
-            
-            if [ "$BATCH_SUCCESS" != true ]; then
-              echo "❌ バッチ ${BATCH} がすべてのリトライで失敗しました"
-            fi
-            
-            # 成功・失敗に関わらず、途中保存されたCSVをpush
-            echo "💾 バッチ処理後のコミット処理を開始..."
-            
-            # Git操作のロック取得（最大30秒待機）
-            if ! acquire_git_lock 30; then
-              echo "❌ Gitロック取得失敗 - コミット処理をスキップ"
-              continue
-            fi
-            
-            # 出力ファイルが変更されていれば追加
-            if [ -f "${{ github.event.inputs.output_file }}" ]; then
-              git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
-            fi
-            
-            # 増分ファイルも追加（存在する場合）
-            if [ -f "results/dental_new_reviews_batch_${BATCH}.csv" ]; then
-              git add "results/dental_new_reviews_batch_${BATCH}.csv" 2>/dev/null || true
-            fi
-            
-            # ログファイルも追加（.gitignoreで無視されている場合はスキップ）
-            if [ -f "results/logs/batch_${BATCH}.log" ]; then
-              git add "results/logs/batch_${BATCH}.log" 2>/dev/null || true
-            fi
-            
-            # 変更がある場合のみコミット＆プッシュ
-            if ! git diff --staged --quiet 2>/dev/null; then
-              # コミットメッセージを成功/失敗に応じて変更
-              if [ "$BATCH_SUCCESS" = true ]; then
-                COMMIT_MSG="chore: Fetch reviews batch ${BATCH}/${TOTAL_BATCHES} (rows ${START_ROW}-${END_ROW})"
-              else
-                COMMIT_MSG="chore: Partial save batch ${BATCH}/${TOTAL_BATCHES} (incomplete/timeout)"
-              fi
-              
-              git commit -m "$COMMIT_MSG"
-              
-              # プッシュ（リトライ付き） - マージコンフリクトを自動解決
-              for i in {1..3}; do
-                echo "Push attempt $i/3..."
-                
-                # 前回のrebaseが残っている場合はクリーンアップ
-                if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
-                  echo "⚠️ 前回のrebase状態を検出 - クリーンアップ中..."
-                  git rebase --abort 2>/dev/null || true
-                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                fi
-                
-                # リモートの変更を取得
-                git fetch origin main
-                
-                # rebaseを試みる
-                if git rebase origin/main; then
-                  echo "✅ Rebase成功"
-                else
-                  echo "⚠️ Rebaseコンフリクト検出 - 自動解決を試みます"
-                  
-                  # rebaseを中止してクリーンアップ
-                  git rebase --abort 2>/dev/null || true
-                  rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                  
-                  # マージ戦略で再試行（CSVファイルは常にローカル版を優先）
-                  git pull origin main --no-rebase -X ours || {
-                    echo "⚠️ マージコンフリクト - 手動解決"
-                    # コンフリクトファイルを確認
-                    git status
-                    
-                    # CSVファイルのコンフリクトは自動解決（ours戦略）
-                    git checkout --ours "${{ github.event.inputs.output_file }}" 2>/dev/null || true
-                    git add "${{ github.event.inputs.output_file }}" 2>/dev/null || true
-                    
-                    # 増分CSVも同様
-                    git checkout --ours "results/dental_new_reviews_batch_${BATCH}.csv" 2>/dev/null || true
-                    git add "results/dental_new_reviews_batch_${BATCH}.csv" 2>/dev/null || true
-                    
-                    # マージを完了
-                    git commit --no-edit 2>/dev/null || true
-                  }
-                fi
-                
-                # プッシュ
-                if git push origin main; then
-                  echo "✅ プッシュ成功"
-                  break
-                else
-                  echo "❌ プッシュ失敗 (attempt $i/3)"
-                  if [ $i -eq 3 ]; then
-                    echo "⚠️ プッシュ失敗 - データはArtifactから取得可能"
-                  else
-                    echo "⏳ 5秒待機してリトライ..."
-                    sleep 5
-                  fi
-                fi
-              done
-            else
-              echo "📝 変更なし（コミット不要）"
-            fi
-            
-            # Git操作のロック解放
-            release_git_lock
-            
-            # バッチの成功判定
-            if [ "$BATCH_SUCCESS" = true ]; then
-              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-              echo "✅ バッチ ${BATCH} 完了"
-            else
-              echo "❌ バッチ ${BATCH} でエラー発生（$MAX_RETRIES 回リトライ後）"
-              ERROR_COUNT=$((ERROR_COUNT + 1))
-              
-              # エラーログを保存
-              if [ -f results/logs/dental_reviews.log ]; then
-                echo "" >> results/logs/errors.log
-                echo "========== バッチ ${BATCH} エラー ($(date)) =========" >> results/logs/errors.log
-                tail -n 100 results/logs/dental_reviews.log >> results/logs/errors.log
-              fi
-              
-              # エラーが連続3回以上なら処理を中断
-              if [ $ERROR_COUNT -ge 3 ] && [ $SUCCESS_COUNT -eq 0 ]; then
-                echo "❌ 連続エラーが多すぎます。処理を中断します。"
-                
-                # バックグラウンドプロセスを停止
-                kill $AUTO_SAVE_PID 2>/dev/null || true
-                kill $TIMEOUT_WATCHER_PID 2>/dev/null || true
-                
-                echo "ERROR_BATCHES=$ERROR_COUNT" >> $GITHUB_OUTPUT
-                exit 1
-              fi
-            fi
-            
-            # タイムアウト警告チェック（345分経過）
-            if [ -f /tmp/workflow_timeout_warning ]; then
-              echo ""
-              echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
-              echo "⚠️  タイムアウト警告検出 - 処理を安全に終了します"
-              echo "⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰⏰"
-              echo "📊 処理済みバッチ: ${BATCH}/${TOTAL_BATCHES}"
-              echo "💾 次回は start_from_batch: $((BATCH + 1)) で再開してください"
-              
-              # バックグラウンドプロセスを停止
-              kill $AUTO_SAVE_PID 2>/dev/null || true
-              kill $TIMEOUT_WATCHER_PID 2>/dev/null || true
-              
-              force_final_push
-              break  # ループを抜けて終了
-            fi
-            
-            # 最後のバッチでなければ待機
-            if [ $BATCH -lt $TOTAL_BATCHES ]; then
-              echo ""
-              echo "⏳ ${WAIT_TIME}秒待機中（API制限対策）..."
-              sleep $WAIT_TIME
-              echo ""
-            fi
-          done
-          
-          # バックグラウンドプロセスを停止
-          kill $AUTO_SAVE_PID 2>/dev/null || true
-          kill $TIMEOUT_WATCHER_PID 2>/dev/null || true
-          echo "✅ 定期自動保存とタイムアウト監視を停止しました"
-          
-          # 最終レポート
-          echo ""
-          echo "=========================================="
-          echo "📊 処理完了サマリー"
-          echo "=========================================="
-          echo "✅ 成功バッチ: ${SUCCESS_COUNT}/$TOTAL_BATCHES"
-          echo "❌ エラーバッチ: ${ERROR_COUNT}/$TOTAL_BATCHES"
-          echo "📝 スキップバッチ: ${SKIP_COUNT}/$TOTAL_BATCHES"
-          echo "=========================================="
-          
-          # 成功率を計算
-          if [ $TOTAL_BATCHES -gt 0 ]; then
-            SUCCESS_RATE=$(( SUCCESS_COUNT * 100 / TOTAL_BATCHES ))
-            echo "📊 成功率: ${SUCCESS_RATE}%"
-          fi
-          
-          # 出力ファイルの確認
-          if [ -f "${{ github.event.inputs.output_file }}" ]; then
-            OUTPUT_LINES=$(wc -l < "${{ github.event.inputs.output_file }}" | xargs)
-            OUTPUT_REVIEWS=$((OUTPUT_LINES - 1))
-            echo "📄 出力レビュー数: ${OUTPUT_REVIEWS}件"
-            echo "📁 出力ファイル: ${{ github.event.inputs.output_file }}"
-          fi
-          
-          # エラーがあった場合はログを表示
-          if [ $ERROR_COUNT -gt 0 ]; then
-            echo ""
-            echo "⚠️ エラーが発生したバッチがあります"
-            if [ -f results/logs/dental_reviews.log ]; then
-              echo "詳細はログファイルを確認してください: results/logs/dental_reviews.log"
-              echo ""
-              echo "最新のエラーログ（最後の50行）:"
-              tail -n 50 results/logs/dental_reviews.log
-            fi
-          fi
-      
-      - name: Merge to All Regions File
-        if: github.event.inputs.merge_to_all_regions == 'true'
-        continue-on-error: true
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e BRIGHTDATA_API_TOKEN \
+            -e ZONE_NAME \
+            -e INPUT_CSV="${{ inputs.csv_file }}" \
+            -e OUTPUT_CSV="results/dental_new_parallel/output_batch_${{ matrix.batch_number }}.csv" \
+            -e UPDATE_CSV="results/dental_new_parallel/dental_new_reviews_batch_${{ matrix.batch_number }}.csv" \
+            -e START_ROW="${{ matrix.start_row }}" \
+            -e END_ROW="${{ matrix.end_row }}" \
+            -e DAYS_BACK="${{ inputs.days_back }}" \
+            -e BATCH_SIZE="${{ inputs.api_batch_size }}" \
+            -e MAX_WAIT_MINUTES="${{ inputs.max_wait_minutes }}" \
+            -e BRIGHTDATA_DATASET_ID="${{ inputs.dataset_id }}" \
+            -e SKIP_COLUMN="${{ inputs.skip_column }}" \
+            python:3.12-slim \
+            sh -lc '
+              set -eu
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+              python get_reviews_from_dental_new.py
+            ' 2>&1 | tee "results/logs/dental_new_batch_${{ matrix.batch_number }}.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dental-new-reviews-batch-${{ matrix.batch_number }}
+          path: |
+            results/dental_new_parallel/*.csv
+            results/logs/dental_new_batch_${{ matrix.batch_number }}.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  merge-results:
+    needs: [prepare, run-batches]
+    if: always() && needs.prepare.outputs.total_batches != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+      - name: Copy private data
         run: |
-          echo ""
-          echo "=========================================="
-          echo "🔄 全地域ファイルへのマージ処理"
-          echo "=========================================="
-          
-          ALL_REGIONS_FILE="${{ github.event.inputs.all_regions_file }}"
-          REGION_FILE="${{ github.event.inputs.output_file }}"
-          
-          echo "地域別ファイル: ${REGION_FILE}"
-          echo "統合先ファイル: ${ALL_REGIONS_FILE}"
-          
-          # 最新のall_regionsファイルを取得
-          git pull origin main || true
-          
-          # Pythonでマージ処理
-          python3 - <<'EOF'
-          import csv
-          import os
-          from collections import OrderedDict
-          
-          all_regions_file = os.environ.get('ALL_REGIONS_FILE', 'results/dental_new_reviews_all_regions.csv')
-          region_file = os.environ.get('REGION_FILE', '')
-          
-          if not region_file or not os.path.exists(region_file):
-              print(f"⚠️ 地域別ファイルが見つかりません: {region_file}")
-              exit(0)
-          
-          # 既存の全地域ファイルを読み込み（レビューGIDでユニーク化）
-          existing_reviews = OrderedDict()
-          if os.path.exists(all_regions_file):
-              with open(all_regions_file, 'r', encoding='utf-8') as f:
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dental-new-reviews-batch-*
+          path: downloaded-batches
+          merge-multiple: true
+      - name: Merge batch CSVs
+        env:
+          OUTPUT_FILE: ${{ inputs.output_file }}
+          ALL_REGIONS_FILE: ${{ inputs.all_regions_file }}
+          MERGE_TO_ALL_REGIONS: ${{ inputs.merge_to_all_regions }}
+        run: |
+          python - <<'PY'
+          import csv, glob, os
+          from pathlib import Path
+          fieldnames = ["レビューID","施設ID","施設GID","レビュワー評価","レビュワー名","レビュー日時","レビュー本文","レビュー要約","レビューGID"]
+          output = Path(os.environ["OUTPUT_FILE"])
+          output.parent.mkdir(parents=True, exist_ok=True)
+
+          def read_rows(path):
+              if not path.exists() or path.stat().st_size == 0:
+                  return []
+              with path.open("r", encoding="utf-8-sig", newline="") as f:
                   reader = csv.DictReader(f)
-                  fieldnames = reader.fieldnames
-                  for row in reader:
-                      gid = row.get('レビューGID', '')
-                      if gid:
-                          existing_reviews[gid] = row
-              print(f"📊 既存レビュー: {len(existing_reviews)}件")
-          else:
-              fieldnames = None
-          
-          # 新しい地域別ファイルを読み込んでマージ
-          new_count = 0
-          update_count = 0
-          with open(region_file, 'r', encoding='utf-8') as f:
-              reader = csv.DictReader(f)
-              if fieldnames is None:
-                  fieldnames = reader.fieldnames
-              
-              for row in reader:
-                  gid = row.get('レビューGID', '')
+                  return [row for row in reader if any((v or "").strip() for v in row.values())]
+
+          merged, seen, max_id = [], set(), 100
+          for row in read_rows(output):
+              gid = (row.get("レビューGID") or "").strip()
+              if gid and gid in seen:
+                  continue
+              if gid:
+                  seen.add(gid)
+              merged.append({k: row.get(k, "") for k in fieldnames})
+              try:
+                  max_id = max(max_id, int(str(row.get("レビューID", "")).strip() or "0"))
+              except ValueError:
+                  pass
+
+          for filename in sorted(glob.glob("downloaded-batches/**/dental_new_reviews_batch_*.csv", recursive=True)):
+              for row in read_rows(Path(filename)):
+                  gid = (row.get("レビューGID") or "").strip()
+                  if gid and gid in seen:
+                      continue
+                  max_id += 1
+                  normalized = {k: row.get(k, "") for k in fieldnames}
+                  normalized["レビューID"] = str(max_id)
                   if gid:
-                      if gid in existing_reviews:
-                          existing_reviews[gid] = row  # 更新
-                          update_count += 1
-                      else:
-                          existing_reviews[gid] = row  # 新規追加
-                          new_count += 1
-          
-          print(f"✅ 新規追加: {new_count}件")
-          print(f"🔄 更新: {update_count}件")
-          
-          # マージ結果を書き込み
-          os.makedirs(os.path.dirname(all_regions_file) or '.', exist_ok=True)
-          with open(all_regions_file, 'w', encoding='utf-8', newline='') as f:
+                      seen.add(gid)
+                  merged.append(normalized)
+
+          with output.open("w", encoding="utf-8-sig", newline="") as f:
               writer = csv.DictWriter(f, fieldnames=fieldnames)
               writer.writeheader()
-              writer.writerows(existing_reviews.values())
-          
-          total = len(existing_reviews)
-          print(f"📄 統合後の総レビュー数: {total}件")
-          print(f"💾 保存先: {all_regions_file}")
-          EOF
-          
-          # マージ結果をコミット＆プッシュ
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          git add "${ALL_REGIONS_FILE}" 2>/dev/null || true
-          
-          if ! git diff --staged --quiet 2>/dev/null; then
-            REGION_NAME=$(basename "${REGION_FILE}" .csv | sed 's/dental_new_reviews_//')
-            git commit -m "chore: Merge ${REGION_NAME} reviews to all_regions"
-            
-            # プッシュ（リトライ付き）
-            for i in {1..3}; do
-              echo "🚀 マージ結果プッシュ試行 $i/3..."
-              
-              # 前回のrebase状態をクリーンアップ
-              if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
-                echo "⚠️ rebase状態クリーンアップ"
-                git rebase --abort 2>/dev/null || true
-                rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-              fi
-              
-              # リモートの最新を取得してrebase
-              git fetch origin main
-              if git rebase origin/main; then
-                echo "✅ Rebase成功"
-              else
-                echo "⚠️ Rebase失敗 - 通常のマージに切り替え"
-                git rebase --abort 2>/dev/null || true
-                rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-                
-                # マージ戦略で再試行（CSVファイルは常にローカル版を優先）
-                if git pull origin main --no-rebase -X ours; then
-                  echo "✅ マージ成功"
-                else
-                  echo "❌ マージ失敗"
-                  if [ $i -eq 3 ]; then
-                    echo "⚠️ 最終試行でも失敗 - Artifactをご確認ください"
-                    break
-                  fi
-                  sleep 3
-                  continue
-                fi
-              fi
-              
-              # プッシュ試行
-              if git push origin main; then
-                echo "✅ マージ結果プッシュ成功"
-                break
-              else
-                echo "❌ マージ結果プッシュ失敗 (attempt $i/3)"
-                if [ $i -lt 3 ]; then
-                  sleep 3
-                fi
-              fi
-            done
-          else
-            echo "📝 マージによる変更なし"
-          fi
-          
-          echo "=========================================="
-      
-      - name: Generate Review Report
-        if: github.event.inputs.generate_report == 'true'
-        continue-on-error: true
+              writer.writerows(merged)
+
+          if os.environ.get("MERGE_TO_ALL_REGIONS", "false").lower() == "true":
+              all_regions = Path(os.environ["ALL_REGIONS_FILE"])
+              existing = {((row.get("レビューGID") or "").strip()): row for row in read_rows(all_regions)}
+              for row in merged:
+                  gid = (row.get("レビューGID") or "").strip()
+                  if gid:
+                      existing[gid] = row
+              all_regions.parent.mkdir(parents=True, exist_ok=True)
+              with all_regions.open("w", encoding="utf-8-sig", newline="") as f:
+                  writer = csv.DictWriter(f, fieldnames=fieldnames)
+                  writer.writeheader()
+                  writer.writerows(existing.values())
+          print(f"Merged rows: {len(merged)}")
+          PY
+      - name: Save to private data repository
         run: |
-          echo ""
-          echo "=========================================="
-          echo "📊 レビューレポート自動生成"
-          echo "=========================================="
-          
-          # レポート生成スクリプトの存在確認
-          if [ ! -f "generate_review_report.py" ]; then
-            echo "⚠️ generate_review_report.py が見つかりません - レポート生成をスキップします"
-            exit 0
+          mkdir -p "private-data/$(dirname '${{ inputs.output_file }}')"
+          cp "${{ inputs.output_file }}" "private-data/${{ inputs.output_file }}"
+          if [ "${{ inputs.merge_to_all_regions }}" = "true" ] && [ -f "${{ inputs.all_regions_file }}" ]; then
+            mkdir -p "private-data/$(dirname '${{ inputs.all_regions_file }}')"
+            cp "${{ inputs.all_regions_file }}" "private-data/${{ inputs.all_regions_file }}"
           fi
-          
-          # レポート生成
-          if [ -f "${{ github.event.inputs.output_file }}" ]; then
-            REPORT_ARGS="--reviews ${{ github.event.inputs.output_file }} --facilities ${{ github.event.inputs.csv_file }}"
-            
-            # 期間指定がある場合
-            if [ -n "${{ github.event.inputs.report_days }}" ]; then
-              REPORT_ARGS="$REPORT_ARGS --days ${{ github.event.inputs.report_days }}"
-              echo "期間: 過去${{ github.event.inputs.report_days }}日間"
-            else
-              echo "期間: 全期間"
-            fi
-            
-            python generate_review_report.py $REPORT_ARGS
-            
-            echo ""
-            echo "✅ レポート生成完了"
-            
-            # レポートをコミット
-            if ls results/reports/review_*.md 1> /dev/null 2>&1; then
-              git add results/reports/ 2>/dev/null || true
-              
-              # 変更がある場合のみコミット
-              if ! git diff --staged --quiet 2>/dev/null; then
-                git commit -m "docs: Add review report for batch processing"
-                
-                # プッシュ（リトライ付き）
-                for i in {1..3}; do
-                  echo "Push attempt $i/3..."
-                  
-                  # リモートの変更を取得してマージ
-                  git pull --rebase origin main || true
-                  
-                  if git push origin main; then
-                    echo "✅ レポートプッシュ成功"
-                    break
-                  else
-                    if [ $i -lt 3 ]; then
-                      echo "⚠️ レポートプッシュ失敗 - リトライ $i/3"
-                      sleep 5
-                    else
-                      echo "⚠️ レポートプッシュ失敗（Artifactから取得可能）"
-                    fi
-                  fi
-                done
-              else
-                echo "📝 レポートに変更なし"
-              fi
-            fi
-          else
-            echo "⚠️ レビューファイルが見つかりません: ${{ github.event.inputs.output_file }}"
-          fi
-      
-      - name: Generate Error Report
-        if: always()
-        run: |
-          echo ""
-          echo "=========================================="
-          echo "🔍 エラー診断レポート"
-          echo "=========================================="
-          echo ""
-          
-          ERROR_LOG_DIR="results/errors"
-          MAIN_LOG="results/logs/dental_reviews.log"
-          BATCH_LOG_DIR="results/logs"
-          
-          # ========== エラーレベル判定 ==========
-          CRITICAL_ERRORS=false
-          API_AUTH_ERROR=false
-          NETWORK_ERROR=false
-          TIMEOUT_ERROR=false
-          
-          # 1️⃣ メインログから重要なエラーを抽出
-          if [ -f "$MAIN_LOG" ]; then
-            if grep -q "401\|403\|Unauthorized\|Forbidden" "$MAIN_LOG"; then
-              API_AUTH_ERROR=true
-              CRITICAL_ERRORS=true
-            fi
-            if grep -q "Connection\|timeout\|ConnectionError\|Max retries" "$MAIN_LOG"; then
-              NETWORK_ERROR=true
-              CRITICAL_ERRORS=true
-            fi
-            if grep -q "Timeout after\|Max wait" "$MAIN_LOG"; then
-              TIMEOUT_ERROR=true
-            fi
-          fi
-          
-          # ========== エラー内容の詳細表示 ==========
-          echo "❌ エラー内容分析:"
-          echo ""
-          
-          if [ "$API_AUTH_ERROR" = true ]; then
-            echo "🔴 【認証エラー】 - 最優先で対応が必要"
-            echo "  問題: BrightData API の認証に失敗しました（HTTP 401/403）"
-            echo ""
-            echo "  確認事項:"
-            echo "    1. GitHub リポジトリの [Settings] → [Secrets and variables] → [Actions] を開く"
-            echo "    2. BRIGHTDATA_API_TOKEN の値を確認"
-            echo "       - トークンが正しくコピーされているか（スペースが含まれていないか）"
-            echo "       - トークンの先頭・末尾に余分な文字がないか"
-            echo "    3. BrightData の Web コンソールでトークンを確認"
-            echo "       - トークンが有効期限内か"
-            echo "       - トークンが正しいアカウントのものか"
-            echo ""
-            echo "  エラーログ:"
-            grep "401\|403\|Unauthorized" "$MAIN_LOG" | tail -n 3 | sed 's/^/    /'
-            echo ""
-          fi
-          
-          if [ "$NETWORK_ERROR" = true ]; then
-            echo "🟡 【ネットワークエラー】 - ネットワーク接続を確認"
-            echo "  問題: BrightData API への接続に失敗しました"
-            echo ""
-            echo "  確認事項:"
-            echo "    1. インターネット接続を確認"
-            echo "    2. ホストのファイアウォール設定を確認"
-            echo "    3. GitHub Actions のネットワーク制限を確認"
-            echo "    4. BrightData API ステータスを確認（https://brightdata.statuspage.io）"
-            echo ""
-            echo "  エラーログ:"
-            grep "Connection\|timeout\|ConnectionError" "$MAIN_LOG" | tail -n 3 | sed 's/^/    /'
-            echo ""
-          fi
-          
-          if [ "$TIMEOUT_ERROR" = true ]; then
-            echo "🟡 【タイムアウトエラー】 - 処理時間が長すぎます"
-            echo "  問題: スナップショット処理が完了するまで待機しましたがタイムアウト"
-            echo ""
-            echo "  改善策:"
-            echo "    1. BATCH_SIZE を減らす（デフォルト: 50）"
-            echo "       → ワークフロー内の API_BATCH_SIZE を 25 や 10 に変更"
-            echo "    2. MAX_WAIT_MINUTES を増やす（デフォルト: 90 → 120 など）"
-            echo "    3. データセットのサイズを確認（大きすぎないか）"
-            echo ""
-          fi
-          
-          # 2️⃣ バッチログから失敗パターンを検出
-          echo "=========================================="
-          echo "📊 バッチ処理ログ分析"
-          echo "=========================================="
-          echo ""
-          
-          if [ -d "$BATCH_LOG_DIR" ]; then
-            TOTAL_BATCH_LOGS=$(ls "$BATCH_LOG_DIR"/batch_*.log 2>/dev/null | wc -l)
-            echo "  バッチログファイル数: ${TOTAL_BATCH_LOGS}"
-            
-            # 失敗したバッチを検出
-            FAILED_BATCHES=""
-            for batch_log in "$BATCH_LOG_DIR"/batch_*.log; do
-              if [ -f "$batch_log" ]; then
-                if grep -q "ERROR\|❌\|Exception" "$batch_log"; then
-                  BATCH_NAME=$(basename "$batch_log")
-                  FAILED_BATCHES="$FAILED_BATCHES $BATCH_NAME"
-                fi
-              fi
-            done
-            
-            if [ -n "$FAILED_BATCHES" ]; then
-              echo "  失敗したバッチ:$FAILED_BATCHES"
-              echo ""
-              echo "  詳細:（最初の失敗バッチを表示）"
-              FIRST_FAILED=$(echo "$FAILED_BATCHES" | awk '{print $1}')
-              if [ -n "$FIRST_FAILED" ]; then
-                tail -n 30 "$BATCH_LOG_DIR/$FIRST_FAILED" | head -n 20 | sed 's/^/    /'
-              fi
-            else
-              echo "  ✅ すべてのバッチが成功しました"
-            fi
-          fi
-          
-          echo ""
-          echo "=========================================="
-          echo "📁 ログファイル情報"
-          echo "=========================================="
-          echo ""
-          echo "以下のファイルをダウンロードして詳細を確認できます："
-          echo "  - results/logs/dental_reviews.log    (メインログ)"
-          echo "  - results/logs/batch_*.log           (バッチ別ログ)"
-          echo "  - results/errors/*.log               (エラー詳細)"
-          echo ""
-          echo "ログアップロード完了後、GitHub Actions の Artifacts からダウンロード可能です"
-          
-          echo ""
-          echo "=========================================="
-          echo "🧹 ログ整理: エラーレポート保存"
-          echo "=========================================="
-          
-          # エラーレポート作成
-          ERROR_REPORT="results/errors/ERROR_REPORT.md"
-          mkdir -p results/errors
-          
-          cat > "$ERROR_REPORT" << 'EOFREPORT'
-          # エラー診断レポート
-          
-          ## 実行情報
-          - 実行日時: $(date)
-          - ランID: ${{ github.run_id }}
-          - アクション: ${{ github.action }}
-          
-          ## 検出されたエラー
-          
-          ### APIトークンエラー
-          - HTTPステータス 401/403 が表示されている場合は、APIトークンが不正です
-          - 確認事項:
-            - GitHub Secrets に BRIGHTDATA_API_TOKEN が設定されているか
-            - トークンが正しくコピーされているか
-            - トークンの有効期限を確認
-          
-          ### ネットワークエラー
-          - "Connection error" や "timeout" が表示されている場合
-          - 確認事項:
-            - ネットワーク接続を確認
-            - ファイアウォール設定を確認
-            - 代理サーバーの設定を確認
-          
-          ### タイムアウトエラー
-          - スナップショット待機でタイムアウトしている場合
-          - 対策:
-            - MAX_WAIT_MINUTES を増やす（デフォルト: 90分）
-            - BATCH_SIZE を減らす（デフォルト: 50）
-            - API_BATCH_SIZE を減らす
-          
-          ## ログファイル
-          - メインログ: `results/logs/dental_reviews.log`
-          - バッチログ: `results/logs/batch_*.log`
-          - エラーログ: `results/errors/*.log`
-          EOFREPORT
-          
-          echo "✅ エラーレポートを保存しました: $ERROR_REPORT"
-      
-      - name: Publish Error Summary
-        if: failure()
-        run: |
-          echo "## ❌ 処理でエラーが発生しました" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### エラー内容の確認方法" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. **ワークフロー実行ログ**: 上のステップ出力を確認" >> $GITHUB_STEP_SUMMARY
-          echo "2. **詳細ログファイル**: 下の Artifacts からダウンロード" >> $GITHUB_STEP_SUMMARY
-          echo "3. **エラー診断レポート**: \`results/errors/ERROR_REPORT.md\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### よくある解決策" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| エラー | 対策 |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 401/403 Unauthorized | GitHub Secrets の BRIGHTDATA_API_TOKEN を確認 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Connection timeout | ネットワーク接続を確認、MAX_WAIT_MINUTES を増やす |" >> $GITHUB_STEP_SUMMARY
-          echo "| JSON parse error | API レスポンス形式を確認 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Input CSV not found | 入力 CSV ファイルパスを確認 |" >> $GITHUB_STEP_SUMMARY
-      
-      - name: Upload log files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dental-reviews-logs-${{ github.run_number }}
-          path: |
-            results/logs/dental_reviews.log
-            results/logs/errors.log
-            results/logs/batch_*.log
-            results/errors/*.log
-          if-no-files-found: ignore
-          retention-days: 7
-      
-      - name: Upload main output file
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dental-reviews-output-${{ github.run_number }}
-          path: ${{ github.event.inputs.output_file }}
-          if-no-files-found: ignore
-          retention-days: 7
-      
-      - name: Upload batch files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dental-reviews-batches-${{ github.run_number }}
-          path: results/dental_new_reviews_batch_*.csv
-          if-no-files-found: ignore
-          retention-days: 7
-      
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dental-review-reports-${{ github.run_number }}
-          path: results/reports/
-          if-no-files-found: ignore
-          retention-days: 7
-      
+          cd private-data
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add results/
+          git diff --staged --quiet || (git commit -m "Update dental new parallel review batches - $(date +'%Y-%m-%d %H:%M:%S')" && git pull --rebase origin main && git push)
       - name: Summary
-        if: always()
         run: |
-          echo "## 処理完了" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 設定" >> $GITHUB_STEP_SUMMARY
-          echo "- 入力CSV: \`${{ github.event.inputs.csv_file }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 出力CSV: \`${{ github.event.inputs.output_file }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Days back: ${{ github.event.inputs.days_back }}日" >> $GITHUB_STEP_SUMMARY
-          echo "- 開始バッチ: ${{ github.event.inputs.start_from_batch }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          ADDED_REVIEWS=$(python3 - <<'PY'
-          import csv
-          import glob
-
-          ids = set()
-          for path in glob.glob('results/dental_new_reviews_batch_*.csv'):
-              try:
-                  with open(path, 'r', encoding='utf-8-sig', newline='') as f:
-                      reader = csv.DictReader(f)
-                      for row in reader:
-                          rid = (row.get('レビューGID') or row.get('レビューID') or '').strip()
-                          if rid:
-                              ids.add(rid)
-              except Exception:
-                  continue
-
-          print(len(ids))
-          PY
-          )
-
-          echo "### 結果" >> $GITHUB_STEP_SUMMARY
-          echo "- **今回追加レビュー数**: ${ADDED_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
-
-          if [ -f "${{ github.event.inputs.output_file }}" ]; then
-            TOTAL_REVIEWS=$(OUTPUT_FILE="${{ github.event.inputs.output_file }}" python3 - <<'PY'
-          import csv
-          import os
-
-          output_file = os.environ.get('OUTPUT_FILE', '').strip()
-          ids = set()
-
-          try:
-              with open(output_file, 'r', encoding='utf-8-sig', newline='') as f:
-                  reader = csv.DictReader(f)
-                  for row in reader:
-                      rid = (row.get('レビューGID') or row.get('レビューID') or '').strip()
-                      if rid:
-                          ids.add(rid)
-          except Exception:
-              pass
-
-          print(len(ids))
-          PY
-            )
-            echo "- 出力CSVのユニークID件数（累積）: ${TOTAL_REVIEWS}件" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Artifactリンクを追加
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Artifact（データ取得）" >> $GITHUB_STEP_SUMMARY
-          echo "タイムアウトやエラーでpushされなかったデータは、以下のArtifactからダウンロードできます：" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- [メイン出力ファイル (dental-reviews-output-${{ github.run_number }})](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [バッチ別ファイル (dental-reviews-batches-${{ github.run_number }})](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [ログファイル (dental-reviews-logs-${{ github.run_number }})](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> 💡 **データ復旧手順**: Artifactをダウンロード → ローカルで解凍 → リポジトリにpush" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # レポート情報を追加
-          if [ "${{ github.event.inputs.generate_report }}" = "true" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 📊 レポート" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${{ github.event.inputs.report_days }}" ]; then
-              echo "- 分析期間: 過去${{ github.event.inputs.report_days }}日間" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "- 分析期間: 全期間" >> $GITHUB_STEP_SUMMARY
-            fi
-            
-            # レポートファイルのリンク
-            if ls results/reports/review_*.md 1> /dev/null 2>&1; then
-              echo "- レポートが生成されました（Artifactsからダウンロード可能）" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
+          echo "## Parallel dental new review batches" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Total rows: ${{ needs.prepare.outputs.total_rows }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Total batches: ${{ needs.prepare.outputs.total_batches }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Max parallel jobs: ${{ inputs.max_parallel_jobs }}" >> "$GITHUB_STEP_SUMMARY"
