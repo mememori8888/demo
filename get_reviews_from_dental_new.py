@@ -678,7 +678,7 @@ def load_existing_reviews():
             with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
-                               'レビュー日時', 'レビュー本文', 'レビュー要約', 'レビューGID'])
+                               'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID'])
             logging.info(f'新規ファイルを作成しました: {OUTPUT_CSV}')
         except Exception as e:
             logging.error(f'ファイル作成に失敗: {e}')
@@ -748,7 +748,21 @@ def extract_review_data_from_api(review_item: Dict, facility_id: str, facility_g
         text = (review_item.get('review') or '').strip()
         
         # その他の有用な情報
-        response_of_owner = (review_item.get('response_of_owner') or '').strip()
+        response_of_owner = (
+            review_item.get('response_of_owner') or
+            review_item.get('owner_response') or
+            review_item.get('owner_reply') or
+            review_item.get('reply') or
+            ''
+        )
+        if isinstance(response_of_owner, dict):
+            response_of_owner = (
+                response_of_owner.get('comment') or
+                response_of_owner.get('text') or
+                response_of_owner.get('content') or
+                ''
+            )
+        response_of_owner = str(response_of_owner).strip()
         number_of_likes = review_item.get('number_of_likes', 0)
         
         return {
@@ -791,6 +805,7 @@ def match_reviews_with_existing(fetched_reviews: List[Dict], existing_gid_set: s
                 'rating': review.get('rating', ''),
                 'timestamp': review.get('timestamp', ''),
                 'text': review.get('text', ''),
+                'response_of_owner': review.get('response_of_owner', ''),
                 'review_gid': review_gid
             })
             current_id += 1
@@ -804,7 +819,7 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
         return
     
     fieldnames = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
-                  'レビュー日時', 'レビュー本文', 'レビュー要約', 'レビューGID']
+                  'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID']
     
     csv_file_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -823,6 +838,7 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
                     'レビュワー名': str(review.get('reviewer_name', '')).strip(),
                     'レビュー日時': str(review.get('timestamp', '')).strip(),
                     'レビュー本文': str(review.get('text', '')).strip(),
+                    'オーナー返信': str(review.get('response_of_owner', '')).strip(),
                     'レビュー要約': '',  # 要約は空
                     'レビューGID': str(review.get('review_gid', '')).strip()
                 })
@@ -836,6 +852,7 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
                     'レビュワー名': str(review.get('レビュワー名', '')).strip(),
                     'レビュー日時': str(review.get('レビュー日時', '')).strip(),
                     'レビュー本文': str(review.get('レビュー本文', '')).strip(),
+                    'オーナー返信': str(review.get('オーナー返信', '')).strip(),
                     'レビュー要約': str(review.get('レビュー要約', '')).strip(),
                     'レビューGID': str(review.get('レビューGID', '')).strip()
                 })
@@ -1015,6 +1032,7 @@ def main():
                         'rating': review_data.get('rating', ''),
                         'timestamp': review_data.get('timestamp', ''),
                         'text': review_data.get('text', ''),
+                        'response_of_owner': review_data.get('response_of_owner', ''),
                         'review_gid': review_gid
                     }
                     stats['new_reviews_list'].append(new_review)

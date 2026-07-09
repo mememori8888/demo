@@ -424,7 +424,7 @@ def load_existing_reviews(review_file_path):
             with open(review_file_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名', 
-                               'レビュー日時', 'レビュー本文', 'レビュー要約', 'レビューGID'])
+                               'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID'])
             print(f'✅ 新規ファイルを作成しました: {review_file_path}')
         except Exception as e:
             print(f'❌ ファイル作成に失敗: {e}')
@@ -674,6 +674,21 @@ def extract_review_data(review_item):
         
         # comment (レビューテキスト)
         text = review_item.get('comment', '')
+
+        owner_reply = (
+            review_item.get('response_of_owner') or
+            review_item.get('owner_response') or
+            review_item.get('owner_reply') or
+            review_item.get('reply') or
+            ''
+        )
+        if isinstance(owner_reply, dict):
+            owner_reply = (
+                owner_reply.get('comment') or
+                owner_reply.get('text') or
+                owner_reply.get('content') or
+                ''
+            )
         
         return {
             'review_id': review_id,
@@ -682,7 +697,8 @@ def extract_review_data(review_item):
             'reviewer_name': reviewer_name,
             'rating': rating,
             'timestamp': created,
-            'text': text
+            'text': text,
+            'response_of_owner': owner_reply
         }
     
     except Exception as e:
@@ -759,6 +775,7 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
                 'rating': review.get('rating', ''),
                 'timestamp': review.get('timestamp', ''),
                 'text': review.get('text', ''),
+                'response_of_owner': review.get('response_of_owner', ''),
                 'review_gid': review_gid
             })
             current_id += 1
@@ -776,7 +793,7 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
     
     # CSVヘッダー
     fieldnames = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名', 
-                  'レビュー日時', 'レビュー本文', 'レビュー要約', 'レビューGID']
+                  'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID']
     
     with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -801,6 +818,7 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
                     'レビュワー名': review.get('reviewer_name', ''),
                     'レビュー日時': review.get('timestamp', ''),
                     'レビュー本文': review.get('text', ''),
+                    'オーナー返信': review.get('response_of_owner', ''),
                     'レビュー要約': summary,
                     'レビューGID': review.get('review_gid', '')
                 })
@@ -821,6 +839,7 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
                     'レビュワー名': review.get('レビュワー名', ''),
                     'レビュー日時': review.get('レビュー日時', ''),
                     'レビュー本文': review.get('レビュー本文', ''),
+                    'オーナー返信': review.get('オーナー返信', ''),
                     'レビュー要約': summary,
                     'レビューGID': review.get('レビューGID', '')
                 })
