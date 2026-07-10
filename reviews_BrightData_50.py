@@ -13,6 +13,7 @@ import requests
 import logging
 from pathlib import Path
 from collections import defaultdict
+from datetime import datetime
 import google.generativeai as genai
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -48,6 +49,8 @@ TIMEOUT = 120  # 2分
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '10'))  # 並列処理数（環境変数から取得可能）
 BATCH_SIZE = 50  # バッチサイズ
 REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')  # qualityScore=関連度順
+REVIEW_DAYS_BACK = int(os.getenv('REVIEW_DAYS_BACK', os.getenv('DAYS_BACK', '30')))
+MAX_REVIEWS_PER_FACILITY = int(os.getenv('MAX_REVIEWS_PER_FACILITY', '50'))
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
                      'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
                      'レビュー取得ソート', 'レビュー要約', 'レビューGID']
@@ -475,8 +478,73 @@ def load_existing_reviews(review_file_path):
     return reviews, gid_set, max_review_id
 
 
-def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=50):
+def parse_relative_review_age_days(created):
+    """Google Reviews SERPの相対日付をおおまかな経過日数に変換する。"""
+    if created is None:
+        return None
+    text = str(created).strip().lower()
+    if not text:
+        return None
+
+    if text in ('now', 'just now', 'today', 'たった今', '今日'):
+        return 0
+    if text in ('yesterday', '昨日'):
+        return 1
+
+    patterns = [
+        (r'(\d+)\s*(?:minute|minutes|min|mins)\s+ago', 0),
+        (r'(\d+)\s*(?:hour|hours|hr|hrs)\s+ago', 0),
+        (r'(\d+)\s*(?:day|days)\s+ago', 1),
+        (r'(\d+)\s*(?:week|weeks)\s+ago', 7),
+        (r'(\d+)\s*(?:month|months)\s+ago', 30),
+        (r'(\d+)\s*(?:year|years)\s+ago', 365),
+        (r'(\d+)\s*分前', 0),
+        (r'(\d+)\s*時間前', 0),
+        (r'(\d+)\s*日前', 1),
+        (r'(\d+)\s*週間前', 7),
+        (r'(\d+)\s*か月前', 30),
+        (r'(\d+)\s*ヶ月前', 30),
+        (r'(\d+)\s*年前', 365),
+    ]
+    word_numbers = {'a': 1, 'an': 1, 'one': 1}
+    for unit, multiplier in [('minute', 0), ('hour', 0), ('day', 1), ('week', 7), ('month', 30), ('year', 365)]:
+        for word, value in word_numbers.items():
+            if re.search(rf'\b{word}\s+{unit}s?\s+ago\b', text):
+                return value * multiplier
+    for pattern, multiplier in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return int(match.group(1)) * multiplier
+
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%b %d, %Y', '%B %d, %Y'):
+        try:
+            dt = datetime.strptime(str(created).strip(), fmt)
+            return max((datetime.now() - dt).days, 0)
+        except ValueError:
+            pass
+
+    return None
+
+
+def is_review_within_days(review_item, days_back):
+    if not days_back or days_back <= 0:
+        return True
+    created = (
+        review_item.get('created') or
+        review_item.get('date') or
+        review_item.get('review_date') or
+        review_item.get('timestamp') or
+        ''
+    )
+    age_days = parse_relative_review_age_days(created)
+    if age_days is None:
+        return False
+    return age_days <= days_back
+
+
+def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=None):
     """BrightData APIからレビューを取得（ページネーション対応）"""
+    max_reviews = max_reviews or MAX_REVIEWS_PER_FACILITY
     if not API_TOKEN:
         error_msg = 'BRIGHTDATA_API_TOKEN environment variable not set'
         print(f'❌ {error_msg}')
@@ -521,7 +589,7 @@ def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=50):
         'Content-Type': 'application/json'
     }
     
-    print(f'  📡 Fetching reviews for FID: {fid} (target: {max_reviews} reviews)')
+    print(f'  📡 Fetching reviews for FID: {fid} (sort: {REVIEW_SORT}, target: {max_reviews} reviews, days_back: {REVIEW_DAYS_BACK})')
     
     all_reviews = []
     page = 0
@@ -589,7 +657,9 @@ def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=50):
                 print(f'  ℹ️  No more reviews at page {page+1}')
                 break
             
-            all_reviews.extend(page_reviews)
+            for review in page_reviews:
+                review['_review_display_order'] = len(all_reviews) + 1
+                all_reviews.append(review)
             print(f'  ✅ Page {page+1}: {len(page_reviews)} reviews fetched (total: {len(all_reviews)})')
             
             # これ以上取得する必要がない場合は終了
@@ -612,6 +682,10 @@ def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=50):
     
     if not all_reviews:
         return None
+
+    before_filter = len(all_reviews)
+    all_reviews = [review for review in all_reviews if is_review_within_days(review, REVIEW_DAYS_BACK)]
+    print(f'  📅 Date filter: {len(all_reviews)}/{before_filter} reviews within {REVIEW_DAYS_BACK} days')
     
     # 最大件数でトリム
     if len(all_reviews) > max_reviews:
@@ -701,7 +775,8 @@ def extract_review_data(review_item):
             'rating': rating,
             'timestamp': created,
             'text': text,
-            'response_of_owner': owner_reply
+            'response_of_owner': owner_reply,
+            'review_display_order': review_item.get('_review_display_order', '')
         }
     
     except Exception as e:
@@ -762,7 +837,7 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
     skipped = 0
     current_id = next_review_id
     
-    for display_order, review in enumerate(fetched_reviews, start=1):
+    for fallback_order, review in enumerate(fetched_reviews, start=1):
         review_gid = review.get('review_id', '')
         
         if review_gid in existing_gid_set:
@@ -779,7 +854,7 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
                 'timestamp': review.get('timestamp', ''),
                 'text': review.get('text', ''),
                 'response_of_owner': review.get('response_of_owner', ''),
-                'review_display_order': display_order,
+                'review_display_order': review.get('review_display_order') or fallback_order,
                 'review_sort': REVIEW_SORT,
                 'review_gid': review_gid
             })
@@ -870,8 +945,8 @@ def process_single_facility(entry, existing_gid_set):
     }
     
     try:
-        # APIからレビューを取得（最大50件）
-        review_items = fetch_reviews_from_api(fid, facility_id, gid, max_reviews=50)
+        # APIからレビューを取得
+        review_items = fetch_reviews_from_api(fid, facility_id, gid)
         
         if not review_items:
             print(f'[{facility_id}] ❌ API取得失敗')
@@ -1088,6 +1163,7 @@ def process_task(task, fid_entries):
 
 def main():
     """メイン処理"""
+    global CONFIG_FILE, START_LINE, PROCESS_COUNT, REVIEW_DAYS_BACK, REVIEW_SORT, MAX_REVIEWS_PER_FACILITY
     import argparse
     
     parser = argparse.ArgumentParser(description='BrightDataレビュー取得ツール')
@@ -1097,21 +1173,29 @@ def main():
     parser.add_argument('--task-name', type=str, help='処理するタスク名')
     parser.add_argument('--start-line', type=int, help='開始行番号 (1-based)')
     parser.add_argument('--process-count', type=int, help='処理件数')
+    parser.add_argument('--days-back', type=int, default=REVIEW_DAYS_BACK, help='何日前までのレビューを残すか')
+    parser.add_argument('--review-sort', default=REVIEW_SORT, choices=['qualityScore', 'newestFirst', 'ratingHigh', 'ratingLow'], help='SERP APIのレビューソート')
+    parser.add_argument('--max-reviews-per-facility', type=int, default=MAX_REVIEWS_PER_FACILITY, help='施設ごとの最大取得レビュー数')
     
     args = parser.parse_args()
     
     # グローバル変数を上書き
-    global CONFIG_FILE, START_LINE, PROCESS_COUNT
     if args.config:
         CONFIG_FILE = args.config
     if args.start_line:
         START_LINE = args.start_line
     if args.process_count:
         PROCESS_COUNT = args.process_count
+    REVIEW_DAYS_BACK = args.days_back
+    REVIEW_SORT = args.review_sort
+    MAX_REVIEWS_PER_FACILITY = args.max_reviews_per_facility
     
     print('='*80)
     print('レビュー取得・照合ツール')
     print('='*80)
+    print(f'レビューソート: {REVIEW_SORT}')
+    print(f'期間フィルタ: 直近 {REVIEW_DAYS_BACK} 日')
+    print(f'施設ごとの最大取得レビュー数: {MAX_REVIEWS_PER_FACILITY}')
     
     # ログ設定を初期化
     setup_logging()

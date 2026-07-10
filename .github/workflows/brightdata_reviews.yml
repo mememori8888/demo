@@ -36,6 +36,21 @@ on:
         required: false
         type: string
         default: '10'
+      days_back:
+        description: 'Keep reviews within this many days'
+        required: false
+        type: string
+        default: '30'
+      review_sort:
+        description: 'Review sort (qualityScore, newestFirst, ratingHigh, ratingLow)'
+        required: false
+        type: string
+        default: 'qualityScore'
+      max_reviews_per_facility:
+        description: 'Maximum reviews to fetch per facility before date filtering'
+        required: false
+        type: string
+        default: '50'
       review_file:
         description: 'Review output file path (leave empty to use config)'
         required: false
@@ -73,6 +88,21 @@ on:
         required: false
         type: string
         default: '10'
+      days_back:
+        description: 'Keep reviews within this many days'
+        required: false
+        type: string
+        default: '30'
+      review_sort:
+        description: 'Review sort'
+        required: false
+        type: string
+        default: 'qualityScore'
+      max_reviews_per_facility:
+        description: 'Maximum reviews to fetch per facility before date filtering'
+        required: false
+        type: string
+        default: '50'
       review_file:
         description: 'Review output file path'
         required: false
@@ -160,10 +190,16 @@ jobs:
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MAX_WORKERS: ${{ inputs.workers }}
+          REVIEW_DAYS_BACK: ${{ inputs.days_back }}
+          REVIEW_SORT: ${{ inputs.review_sort }}
+          MAX_REVIEWS_PER_FACILITY: ${{ inputs.max_reviews_per_facility }}
         timeout-minutes: 270
         run: |
           echo "=== Starting parallel review scraper ==="
           echo "🚀 Parallel workers: $MAX_WORKERS"
+          echo "📅 Days back: $REVIEW_DAYS_BACK"
+          echo "↕️ Review sort: $REVIEW_SORT"
+          echo "📄 Max reviews per facility: $MAX_REVIEWS_PER_FACILITY"
           
           # FID file の設定
           if [ -n "${{ inputs.fid_file }}" ]; then
@@ -187,6 +223,9 @@ jobs:
           
           python reviews_BrightData_50.py \
             --config "${{ inputs.config_file }}" \
+            --days-back "$REVIEW_DAYS_BACK" \
+            --review-sort "$REVIEW_SORT" \
+            --max-reviews-per-facility "$MAX_REVIEWS_PER_FACILITY" \
             $REVIEW_OPT \
             ${{ inputs.task_name && format('--task-name "{0}"', inputs.task_name) || '' }} \
             ${{ inputs.start_line && format('--start-line {0}', inputs.start_line) || '' }} \
