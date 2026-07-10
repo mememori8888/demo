@@ -322,64 +322,7 @@ jobs:
           ALL_REGIONS_FILE: ${{ inputs.all_regions_file }}
           MERGE_TO_ALL_REGIONS: ${{ inputs.merge_to_all_regions }}
         run: |
-          python - <<'PY'
-          import csv, glob, os
-          from pathlib import Path
-          fieldnames = ["レビューID","施設ID","施設GID","レビュワー評価","レビュワー名","レビュー日時","レビュー本文","オーナー返信","レビュー表示順位","レビュー取得ソート","レビュー要約","レビューGID"]
-          output = Path(os.environ["OUTPUT_FILE"])
-          output.parent.mkdir(parents=True, exist_ok=True)
-
-          def read_rows(path):
-              if not path.exists() or path.stat().st_size == 0:
-                  return []
-              with path.open("r", encoding="utf-8-sig", newline="") as f:
-                  reader = csv.DictReader(f)
-                  return [row for row in reader if any((v or "").strip() for v in row.values())]
-
-          merged, seen, max_id = [], set(), 100
-          for row in read_rows(output):
-              gid = (row.get("レビューGID") or "").strip()
-              if gid and gid in seen:
-                  continue
-              if gid:
-                  seen.add(gid)
-              merged.append({k: row.get(k, "") for k in fieldnames})
-              try:
-                  max_id = max(max_id, int(str(row.get("レビューID", "")).strip() or "0"))
-              except ValueError:
-                  pass
-
-          for filename in sorted(glob.glob("downloaded-batches/**/reviews_batch_*.csv", recursive=True)):
-              for row in read_rows(Path(filename)):
-                  gid = (row.get("レビューGID") or "").strip()
-                  if gid and gid in seen:
-                      continue
-                  max_id += 1
-                  normalized = {k: row.get(k, "") for k in fieldnames}
-                  normalized["レビューID"] = str(max_id)
-                  if gid:
-                      seen.add(gid)
-                  merged.append(normalized)
-
-          with output.open("w", encoding="utf-8-sig", newline="") as f:
-              writer = csv.DictWriter(f, fieldnames=fieldnames)
-              writer.writeheader()
-              writer.writerows(merged)
-
-          if os.environ.get("MERGE_TO_ALL_REGIONS", "false").lower() == "true":
-              all_regions = Path(os.environ["ALL_REGIONS_FILE"])
-              existing = {((row.get("レビューGID") or "").strip()): row for row in read_rows(all_regions)}
-              for row in merged:
-                  gid = (row.get("レビューGID") or "").strip()
-                  if gid:
-                      existing[gid] = row
-              all_regions.parent.mkdir(parents=True, exist_ok=True)
-              with all_regions.open("w", encoding="utf-8-sig", newline="") as f:
-                  writer = csv.DictWriter(f, fieldnames=fieldnames)
-                  writer.writeheader()
-                  writer.writerows(existing.values())
-          print(f"Merged rows: {len(merged)}")
-          PY
+          BATCH_PATTERN='downloaded-batches/**/reviews_batch_*.csv' python scripts/merge_review_batches.py
       - name: Save to private data repository
         run: |
           mkdir -p "private-data/$(dirname '${{ inputs.output_file }}')"
