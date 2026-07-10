@@ -50,7 +50,7 @@ DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
 MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
 REQUESTED_REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')
-APPLIED_REVIEW_SORT = 'dataset_default'  # Google Maps Reviews dataset rejects a sort input field.
+APPLIED_REVIEW_SORT = REQUESTED_REVIEW_SORT
 ALLOW_PARTIAL_FAILURE = os.getenv('ALLOW_PARTIAL_FAILURE', 'false').lower() in ('1', 'true', 'yes')
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
                      'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
@@ -226,14 +226,12 @@ class BrightDataWebScraperReviews:
     
     def trigger_snapshot(self, urls_with_params: List[Dict]) -> str:
         """
-        スナップショット収集をトリガー（/scrape エンドポイント使用、公式ドキュメント準拠）
+        スナップショット収集をトリガー（/trigger エンドポイント使用、公式ドキュメント準拠）
         """
-        # 公式ドキュメント通りの /scrape エンドポイント
-        trigger_url = f"{self.base_url}/scrape"
+        trigger_url = f"{self.base_url}/trigger"
         params = {
             "dataset_id": self.dataset_id,
-            "notify": "false",
-            "include_errors": "true"
+            "format": "json"
         }
         
         # 空のフィールドを削除（APIエラー回避）
@@ -242,11 +240,8 @@ class BrightDataWebScraperReviews:
             clean_item = {k: v for k, v in item.items() if v != "" and v is not None}
             clean_params.append(clean_item)
         
-        # 公式ドキュメント通りの形式: {"input": [...]}
-        payload = {"input": clean_params}
-        
         # デバッグ: 送信するJSONを出力
-        logging.info(f"📤 Sending payload: {json.dumps(payload, ensure_ascii=False)[:500]}...")
+        logging.info(f"📤 Sending payload: {json.dumps(clean_params, ensure_ascii=False)[:500]}...")
         logging.info(f"📤 Number of items: {len(clean_params)}")
         logging.info(f"📤 Request URL: {trigger_url}?{requests.compat.urlencode(params)}")
         
@@ -262,7 +257,7 @@ class BrightDataWebScraperReviews:
                     trigger_url,
                     params=params,
                     headers=self.headers,
-                    data=json.dumps(payload),  # json.dumps を使用（公式に準拠）
+                    json=clean_params,
                     timeout=120
                 )
                 
@@ -931,10 +926,11 @@ def main():
         
         for entry in batch_entries:
             url = entry['url']
-            # 公式ドキュメント準拠: url と days_limit を指定
+            # 公式ドキュメント準拠: url、days_limit、sort を指定
             payload = {
                 "url": url,
-                "days_limit": DAYS_BACK  # 公式では days_limit を使用
+                "days_limit": DAYS_BACK,  # 公式では days_limit を使用
+                "sort": REQUESTED_REVIEW_SORT
             }
             urls_with_params.append(payload)
             facility_map[url] = entry
