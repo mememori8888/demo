@@ -24,10 +24,6 @@ on:
         description: 'Days back'
         required: true
         default: '10'
-      review_sort:
-        description: 'Review sort (qualityScore, newestFirst, ratingHigh, ratingLow)'
-        required: false
-        default: 'qualityScore'
       start_from_batch:
         description: 'Start from batch number'
         required: false
@@ -95,10 +91,6 @@ on:
         required: true
         type: string
         default: '10'
-      review_sort:
-        required: false
-        type: string
-        default: 'qualityScore'
       start_from_batch:
         required: false
         type: string
@@ -251,7 +243,6 @@ jobs:
           START_ROW: ${{ matrix.start_row }}
           END_ROW: ${{ matrix.end_row }}
           DAYS_BACK: ${{ inputs.days_back }}
-          REVIEW_SORT: ${{ inputs.review_sort }}
           API_BATCH_SIZE: ${{ inputs.api_batch_size }}
           MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes }}
           DATASET_ID: ${{ inputs.dataset_id }}
@@ -262,7 +253,6 @@ jobs:
             -w /workspace \
             -e BRIGHTDATA_API_TOKEN \
             -e ZONE_NAME \
-            -e REVIEW_SORT \
             python:3.12-slim \
             sh -lc '
               set -eu
@@ -275,7 +265,6 @@ jobs:
                 --start-row "'"$START_ROW"'" \
                 --end-row "'"$END_ROW"'" \
                 --days-back "'"$DAYS_BACK"'" \
-                --review-sort "'"$REVIEW_SORT"'" \
                 --batch-size "'"$API_BATCH_SIZE"'" \
                 --max-wait-minutes "'"$MAX_WAIT_MINUTES"'" \
                 --dataset-id "'"$DATASET_ID"'" \

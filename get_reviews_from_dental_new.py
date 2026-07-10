@@ -49,7 +49,6 @@ DATASET_ID = os.getenv('BRIGHTDATA_DATASET_ID', 'gd_luzfs1dn2oa0teb81')  # Googl
 DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
 MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
-REQUESTED_REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')
 APPLIED_REVIEW_SORT = 'qualityScore'  # Dataset API default; sort input is rejected by this dataset.
 ALLOW_PARTIAL_FAILURE = os.getenv('ALLOW_PARTIAL_FAILURE', 'false').lower() in ('1', 'true', 'yes')
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
@@ -192,7 +191,6 @@ def validate_environment():
     logging.info(f"  Dataset ID: {DATASET_ID}")
     logging.info(f"  Days Back: {DAYS_BACK}")
     logging.info(f"  Batch Size: {BATCH_SIZE}")
-    logging.info(f"  Requested Review Sort: {REQUESTED_REVIEW_SORT}")
     logging.info(f"  Applied Review Sort: {APPLIED_REVIEW_SORT}")
     logging.info(f"  Allow Partial Failure: {ALLOW_PARTIAL_FAILURE}")
     logging.info(f"  Max Wait Minutes: {MAX_WAIT_MINUTES}")
@@ -889,7 +887,6 @@ def main():
     logging.info(f'Dataset ID: {DATASET_ID}')
     logging.info(f'Days back: {DAYS_BACK}')
     logging.info(f'Batch size: {BATCH_SIZE}')
-    logging.info(f'Requested review sort: {REQUESTED_REVIEW_SORT}')
     logging.info(f'Applied review sort: {APPLIED_REVIEW_SORT}')
     logging.info(f'処理範囲: 行{START_ROW}～{END_ROW if END_ROW else "最終行"}')
     
