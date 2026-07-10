@@ -248,6 +248,7 @@ jobs:
           DATASET_ID: ${{ inputs.dataset_id }}
           SKIP_COLUMN: ${{ inputs.skip_column }}
         run: |
+          set -o pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
             -w /workspace \
@@ -283,7 +284,7 @@ jobs:
 
   merge-results:
     needs: [prepare, run-batches]
-    if: always() && needs.prepare.outputs.total_batches != '0'
+    if: needs.run-batches.result == 'success' && needs.prepare.outputs.total_batches != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

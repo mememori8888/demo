@@ -161,6 +161,7 @@ jobs:
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
           ZONE_NAME: ${{ secrets.BRIGHTDATA_ZONE_NAME || 'serp_api2' }}
         run: |
+          set -o pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
             -w /workspace \
@@ -195,7 +196,7 @@ jobs:
 
   merge-results:
     needs: [prepare, run-batches]
-    if: always() && needs.prepare.outputs.total_batches != '0'
+    if: needs.run-batches.result == 'success' && needs.prepare.outputs.total_batches != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
