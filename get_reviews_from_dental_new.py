@@ -50,7 +50,7 @@ DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
 MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
 REQUESTED_REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')
-APPLIED_REVIEW_SORT = REQUESTED_REVIEW_SORT
+APPLIED_REVIEW_SORT = 'qualityScore'  # Dataset API default; sort input is rejected by this dataset.
 ALLOW_PARTIAL_FAILURE = os.getenv('ALLOW_PARTIAL_FAILURE', 'false').lower() in ('1', 'true', 'yes')
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
                      'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
@@ -234,10 +234,14 @@ class BrightDataWebScraperReviews:
             "format": "json"
         }
         
-        # 空のフィールドを削除（APIエラー回避）
+        # 空のフィールドとDataset API非対応フィールドを削除（APIエラー回避）
         clean_params = []
         for item in urls_with_params:
-            clean_item = {k: v for k, v in item.items() if v != "" and v is not None}
+            clean_item = {
+                k: v
+                for k, v in item.items()
+                if v != "" and v is not None and k not in ("sort", "sort_by")
+            }
             clean_params.append(clean_item)
         
         # デバッグ: 送信するJSONを出力
@@ -926,11 +930,11 @@ def main():
         
         for entry in batch_entries:
             url = entry['url']
-            # 公式ドキュメント準拠: url、days_limit、sort を指定
+            # Dataset APIはsort入力を拒否するため、url と days_limit のみ指定する。
+            # Google ReviewsのデフォルトはqualityScore（関連度順）。
             payload = {
                 "url": url,
-                "days_limit": DAYS_BACK,  # 公式では days_limit を使用
-                "sort": REQUESTED_REVIEW_SORT
+                "days_limit": DAYS_BACK  # 公式では days_limit を使用
             }
             urls_with_params.append(payload)
             facility_map[url] = entry
