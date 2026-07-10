@@ -485,8 +485,6 @@ def parse_relative_review_age_days(created):
     text = str(created).strip().lower()
     if not text:
         return None
-    text = re.sub(r'^(?:about|around|approximately|approx\.?|over|almost|less than)\s+', '', text)
-    text = re.sub(r'^約\s*', '', text)
 
     if text in ('now', 'just now', 'today', 'たった今', '今日'):
         return 0
@@ -838,7 +836,6 @@ def summarize_reviews_with_gemini(reviews):
 def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, facility_gid, next_review_id):
     """取得したレビューと既存のGIDセットを照合"""
     new_reviews = []
-    matched_reviews = []
     skipped = 0
     current_id = next_review_id
     
@@ -847,18 +844,6 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
         
         if review_gid in existing_gid_set:
             # 既存のレビューGIDと一致する場合はスキップ
-            matched_reviews.append({
-                'facility_id': facility_id,
-                'facility_gid': facility_gid,
-                'reviewer_name': review.get('reviewer_name', ''),
-                'rating': review.get('rating', ''),
-                'timestamp': review.get('timestamp', ''),
-                'text': review.get('text', ''),
-                'response_of_owner': review.get('response_of_owner', ''),
-                'review_display_order': review.get('review_display_order') or fallback_order,
-                'review_sort': REVIEW_SORT,
-                'review_gid': review_gid
-            })
             skipped += 1
         else:
             # 新規レビューとして追加
@@ -877,88 +862,7 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
             })
             current_id += 1
     
-    return new_reviews, matched_reviews, skipped, current_id
-
-
-def review_to_csv_row(review, facility_summaries=None):
-    """既存行・新規行のどちらもCSV保存用の行へ正規化する。"""
-    facility_summaries = facility_summaries or {}
-    if 'assigned_review_id' in review or 'review_gid' in review:
-        facility_id = review.get('facility_id', '')
-        summary = ''
-        if 'assigned_review_id' in review:
-            summary = 'AI要約は停止中'
-        if facility_id in facility_summaries:
-            summary = facility_summaries[facility_id]
-        return {
-            'レビューID': review.get('assigned_review_id', ''),
-            '施設ID': facility_id,
-            '施設GID': review.get('facility_gid', ''),
-            'レビュワー評価': review.get('rating', ''),
-            'レビュワー名': review.get('reviewer_name', ''),
-            'レビュー日時': review.get('timestamp', ''),
-            'レビュー本文': review.get('text', ''),
-            'オーナー返信': review.get('response_of_owner', ''),
-            'レビュー表示順位': review.get('review_display_order', ''),
-            'レビュー取得ソート': review.get('review_sort', ''),
-            'レビュー要約': summary,
-            'レビューGID': review.get('review_gid', '')
-        }
-
-    facility_id = review.get('施設ID', '')
-    summary = review.get('レビュー要約', '')
-    if facility_id in facility_summaries:
-        summary = facility_summaries[facility_id]
-    return {
-        'レビューID': review.get('レビューID', ''),
-        '施設ID': facility_id,
-        '施設GID': review.get('施設GID', ''),
-        'レビュワー評価': review.get('レビュワー評価', ''),
-        'レビュワー名': review.get('レビュワー名', ''),
-        'レビュー日時': review.get('レビュー日時', ''),
-        'レビュー本文': review.get('レビュー本文', ''),
-        'オーナー返信': review.get('オーナー返信', ''),
-        'レビュー表示順位': review.get('レビュー表示順位', ''),
-        'レビュー取得ソート': review.get('レビュー取得ソート', ''),
-        'レビュー要約': summary,
-        'レビューGID': review.get('レビューGID', '')
-    }
-
-
-def merge_reviews_by_relevance(existing_reviews, new_reviews, facility_summaries=None):
-    """
-    レビューGIDで統合し、再取得したレビューの関連度順位を既存行へ反映する。
-    最終CSVは施設ごとにレビュー表示順位の昇順になるように並べる。
-    """
-    merged = {}
-    order = 0
-    for review in existing_reviews + new_reviews:
-        order += 1
-        row = review_to_csv_row(review, facility_summaries)
-        gid = (row.get('レビューGID') or '').strip()
-        key = gid or f'__row_{order}'
-        if key in merged and gid:
-            old = merged[key]
-            for column, value in row.items():
-                if str(value or '').strip():
-                    old[column] = value
-        else:
-            merged[key] = row
-
-    def sort_key(item):
-        row = item[1]
-        facility_key = row.get('施設ID') or row.get('施設GID') or ''
-        try:
-            display_order = int(str(row.get('レビュー表示順位') or '999999').strip())
-        except ValueError:
-            display_order = 999999
-        try:
-            review_id = int(str(row.get('レビューID') or '999999999').strip())
-        except ValueError:
-            review_id = 999999999
-        return facility_key, display_order, review_id
-
-    return [row for _, row in sorted(merged.items(), key=sort_key)]
+    return new_reviews, skipped, current_id
 
 
 def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
@@ -977,7 +881,53 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
         writer.writeheader()
         
         for review in reviews:
-            writer.writerow(review_to_csv_row(review, facility_summaries))
+            # 既存レビュー（CSVから読み込んだもの）と新規レビュー（APIから取得したもの）の両方に対応
+            if 'assigned_review_id' in review:
+                # 新規レビュー
+                facility_id = review.get('facility_id', '')
+                
+                # 施設ごとの要約を取得（存在する場合）
+                summary = 'AI要約は停止中'
+                if facility_summaries and facility_id in facility_summaries:
+                    summary = facility_summaries[facility_id]
+                
+                writer.writerow({
+                    'レビューID': review.get('assigned_review_id', ''),
+                    '施設ID': facility_id,
+                    '施設GID': review.get('facility_gid', ''),
+                    'レビュワー評価': review.get('rating', ''),
+                    'レビュワー名': review.get('reviewer_name', ''),
+                    'レビュー日時': review.get('timestamp', ''),
+                    'レビュー本文': review.get('text', ''),
+                    'オーナー返信': review.get('response_of_owner', ''),
+                    'レビュー表示順位': review.get('review_display_order', ''),
+                    'レビュー取得ソート': review.get('review_sort', ''),
+                    'レビュー要約': summary,
+                    'レビューGID': review.get('review_gid', '')
+                })
+            else:
+                # 既存レビュー
+                facility_id = review.get('施設ID', '')
+                
+                # 要約が生成されている場合は更新、なければ既存の値を保持
+                summary = review.get('レビュー要約', '')
+                if facility_summaries and facility_id in facility_summaries:
+                    summary = facility_summaries[facility_id]
+                
+                writer.writerow({
+                    'レビューID': review.get('レビューID', ''),
+                    '施設ID': facility_id,
+                    '施設GID': review.get('施設GID', ''),
+                    'レビュワー評価': review.get('レビュワー評価', ''),
+                    'レビュワー名': review.get('レビュワー名', ''),
+                    'レビュー日時': review.get('レビュー日時', ''),
+                    'レビュー本文': review.get('レビュー本文', ''),
+                    'オーナー返信': review.get('オーナー返信', ''),
+                    'レビュー表示順位': review.get('レビュー表示順位', ''),
+                    'レビュー取得ソート': review.get('レビュー取得ソート', ''),
+                    'レビュー要約': summary,
+                    'レビューGID': review.get('レビューGID', '')
+                })
 
 
 def process_single_facility(entry, existing_gid_set):
@@ -1079,7 +1029,6 @@ def process_task(task, fid_entries):
         'new_reviews': 0,
         'skipped_reviews': 0,
         'new_reviews_list': [],
-        'matched_reviews_list': [],
         'ai_summaries': 0
     }
     
@@ -1113,18 +1062,13 @@ def process_task(task, fid_entries):
                 stats['total_fetched_reviews'] += len(fetched_reviews)
                 
                 # 既存のGIDと照合
-                new_reviews, matched_reviews, skipped, next_review_id = match_reviews_with_existing(
+                new_reviews, skipped, next_review_id = match_reviews_with_existing(
                     fetched_reviews, existing_gid_set, facility_id, gid, next_review_id
                 )
                 
                 stats['new_reviews'] += len(new_reviews)
                 stats['skipped_reviews'] += skipped
                 stats['new_reviews_list'].extend(new_reviews)
-                stats['matched_reviews_list'].extend(matched_reviews)
-                for review in new_reviews:
-                    review_gid = (review.get('review_gid') or '').strip()
-                    if review_gid:
-                        existing_gid_set.add(review_gid)
                 
                 # 要約を保存
                 if result['summary']:
@@ -1136,13 +1080,8 @@ def process_task(task, fid_entries):
                     print(f'\n📊 進捗: {completed}/{len(fid_entries)} 施設完了 (新規:{stats["new_reviews"]}件)\n')
                 
                 # 50施設ごとにCSVに保存（途中保存）
-                if completed % 50 == 0 and (stats['new_reviews_list'] or stats['matched_reviews_list']):
-                    merged_reviews = merge_reviews_by_relevance(
-                        existing_reviews,
-                        stats['matched_reviews_list'] + stats['new_reviews_list'],
-                        facility_summaries
-                    )
-                    save_reviews_to_csv(review_file_path, merged_reviews, facility_summaries)
+                if completed % 50 == 0 and stats['new_reviews_list']:
+                    save_reviews_to_csv(review_file_path, existing_reviews + stats['new_reviews_list'], facility_summaries)
                     print(f'\n💾 途中保存: {len(stats["new_reviews_list"])}件\n')
                     
             except Exception as e:
@@ -1213,14 +1152,10 @@ def process_task(task, fid_entries):
     
     # レビューをCSVに保存（既存+新規）
     # 新規レビューがある、または要約が生成された場合に保存
-    if stats['new_reviews_list'] or stats['matched_reviews_list'] or facility_summaries:
-        all_reviews = merge_reviews_by_relevance(
-            existing_reviews,
-            stats['matched_reviews_list'] + stats['new_reviews_list'],
-            facility_summaries
-        )
+    if stats['new_reviews_list'] or facility_summaries:
+        all_reviews = existing_reviews + stats['new_reviews_list']
         save_reviews_to_csv(review_file_path, all_reviews, facility_summaries)
-        print(f'💾 レビューをCSVに保存しました: {review_file_path} (既存:{len(existing_reviews)}件 + 新規:{len(stats["new_reviews_list"])}件 = 集約後:{len(all_reviews)}件)')
+        print(f'💾 レビューをCSVに保存しました: {review_file_path} (既存:{len(existing_reviews)}件 + 新規:{len(stats["new_reviews_list"])}件 = 合計:{len(all_reviews)}件)')
         # === Gemini要約メッセージ（無効化中） ===
         # if GEMINI_MODEL and facility_summaries:
         #     print(f'🤖 Gemini要約: {len(facility_summaries)}施設の要約を生成しました')
