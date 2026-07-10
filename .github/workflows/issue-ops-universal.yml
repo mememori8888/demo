@@ -426,6 +426,7 @@ jobs:
       merge_to_all_regions: ${{ fromJson(needs.parse-and-route.outputs.params).merge_to_all_regions != false }}
       all_regions_file: ${{ fromJson(needs.parse-and-route.outputs.params).all_regions_file || 'results/dental_new_reviews_all_regions.csv' }}
       days_back: ${{ fromJson(needs.parse-and-route.outputs.params).days_back || '10' }}
+      review_sort: ${{ fromJson(needs.parse-and-route.outputs.params).review_sort || 'qualityScore' }}
       start_from_batch: ${{ fromJson(needs.parse-and-route.outputs.params).start_from_batch || '1' }}
       rows_per_batch: ${{ fromJson(needs.parse-and-route.outputs.params).rows_per_batch || '500' }}
       batch_wait: ${{ fromJson(needs.parse-and-route.outputs.params).batch_wait || '120' }}

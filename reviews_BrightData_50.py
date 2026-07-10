@@ -47,6 +47,10 @@ API_TOKEN = os.getenv('BRIGHTDATA_API_TOKEN')
 TIMEOUT = 120  # 2分
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '10'))  # 並列処理数（環境変数から取得可能）
 BATCH_SIZE = 50  # バッチサイズ
+REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')  # qualityScore=関連度順
+REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
+                     'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
+                     'レビュー取得ソート', 'レビュー要約', 'レビューGID']
 
 # Gemini API設定
 # === 🚀 パフォーマンス最適化のため、Gemini機能を一時的に無効化 ===
@@ -423,8 +427,7 @@ def load_existing_reviews(review_file_path):
         try:
             with open(review_file_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名', 
-                               'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID'])
+                writer.writerow(REVIEW_FIELDNAMES)
             print(f'✅ 新規ファイルを作成しました: {review_file_path}')
         except Exception as e:
             print(f'❌ ファイル作成に失敗: {e}')
@@ -528,7 +531,7 @@ def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=50):
         start = page * reviews_per_page
         
         # レビューURLを構築（startパラメータでページネーション）
-        url = f'https://www.google.com/reviews?fid={fid}&start={start}&sort=newestFirst&hl=ja&brd_json=1'
+        url = f'https://www.google.com/reviews?fid={fid}&start={start}&sort={REVIEW_SORT}&hl=ja&brd_json=1'
 
         
         payload = {
@@ -759,7 +762,7 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
     skipped = 0
     current_id = next_review_id
     
-    for review in fetched_reviews:
+    for display_order, review in enumerate(fetched_reviews, start=1):
         review_gid = review.get('review_id', '')
         
         if review_gid in existing_gid_set:
@@ -776,6 +779,8 @@ def match_reviews_with_existing(fetched_reviews, existing_gid_set, facility_id, 
                 'timestamp': review.get('timestamp', ''),
                 'text': review.get('text', ''),
                 'response_of_owner': review.get('response_of_owner', ''),
+                'review_display_order': display_order,
+                'review_sort': REVIEW_SORT,
                 'review_gid': review_gid
             })
             current_id += 1
@@ -792,8 +797,7 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
         return
     
     # CSVヘッダー
-    fieldnames = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名', 
-                  'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID']
+    fieldnames = REVIEW_FIELDNAMES
     
     with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -819,6 +823,8 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
                     'レビュー日時': review.get('timestamp', ''),
                     'レビュー本文': review.get('text', ''),
                     'オーナー返信': review.get('response_of_owner', ''),
+                    'レビュー表示順位': review.get('review_display_order', ''),
+                    'レビュー取得ソート': review.get('review_sort', ''),
                     'レビュー要約': summary,
                     'レビューGID': review.get('review_gid', '')
                 })
@@ -840,6 +846,8 @@ def save_reviews_to_csv(csv_file_path, reviews, facility_summaries=None):
                     'レビュー日時': review.get('レビュー日時', ''),
                     'レビュー本文': review.get('レビュー本文', ''),
                     'オーナー返信': review.get('オーナー返信', ''),
+                    'レビュー表示順位': review.get('レビュー表示順位', ''),
+                    'レビュー取得ソート': review.get('レビュー取得ソート', ''),
                     'レビュー要約': summary,
                     'レビューGID': review.get('レビューGID', '')
                 })

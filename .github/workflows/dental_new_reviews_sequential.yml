@@ -24,6 +24,10 @@ on:
         description: 'Days back'
         required: true
         default: '10'
+      review_sort:
+        description: 'Review sort (qualityScore, newestFirst, ratingHigh, ratingLow)'
+        required: false
+        default: 'qualityScore'
       start_from_batch:
         description: 'Start from batch number'
         required: false
@@ -162,6 +166,7 @@ jobs:
             -e START_ROW="${{ matrix.start_row }}" \
             -e END_ROW="${{ matrix.end_row }}" \
             -e DAYS_BACK="${{ inputs.days_back }}" \
+            -e REVIEW_SORT="${{ inputs.review_sort }}" \
             -e BATCH_SIZE="${{ inputs.api_batch_size }}" \
             -e MAX_WAIT_MINUTES="${{ inputs.max_wait_minutes }}" \
             -e BRIGHTDATA_DATASET_ID="${{ inputs.dataset_id }}" \
@@ -216,7 +221,7 @@ jobs:
           python - <<'PY'
           import csv, glob, os
           from pathlib import Path
-          fieldnames = ["レビューID","施設ID","施設GID","レビュワー評価","レビュワー名","レビュー日時","レビュー本文","レビュー要約","レビューGID"]
+          fieldnames = ["レビューID","施設ID","施設GID","レビュワー評価","レビュワー名","レビュー日時","レビュー本文","オーナー返信","レビュー表示順位","レビュー取得ソート","レビュー要約","レビューGID"]
           output = Path(os.environ["OUTPUT_FILE"])
           output.parent.mkdir(parents=True, exist_ok=True)
 

@@ -49,6 +49,10 @@ DATASET_ID = os.getenv('BRIGHTDATA_DATASET_ID', 'gd_luzfs1dn2oa0teb81')  # Googl
 DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
 MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
+REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')  # qualityScore=関連度順
+REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
+                     'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
+                     'レビュー取得ソート', 'レビュー要約', 'レビューGID']
 
 
 def safe_read_csv(filepath):
@@ -186,6 +190,7 @@ def validate_environment():
     logging.info(f"  Dataset ID: {DATASET_ID}")
     logging.info(f"  Days Back: {DAYS_BACK}")
     logging.info(f"  Batch Size: {BATCH_SIZE}")
+    logging.info(f"  Review Sort: {REVIEW_SORT}")
     logging.info(f"  Max Wait Minutes: {MAX_WAIT_MINUTES}")
     
     # 入力ファイル確認
@@ -677,8 +682,7 @@ def load_existing_reviews():
             OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
             with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
-                               'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID'])
+                writer.writerow(REVIEW_FIELDNAMES)
             logging.info(f'新規ファイルを作成しました: {OUTPUT_CSV}')
         except Exception as e:
             logging.error(f'ファイル作成に失敗: {e}')
@@ -806,6 +810,8 @@ def match_reviews_with_existing(fetched_reviews: List[Dict], existing_gid_set: s
                 'timestamp': review.get('timestamp', ''),
                 'text': review.get('text', ''),
                 'response_of_owner': review.get('response_of_owner', ''),
+                'review_display_order': review.get('review_display_order', ''),
+                'review_sort': review.get('review_sort', REVIEW_SORT),
                 'review_gid': review_gid
             })
             current_id += 1
@@ -818,8 +824,7 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
     if not reviews:
         return
     
-    fieldnames = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
-                  'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー要約', 'レビューGID']
+    fieldnames = REVIEW_FIELDNAMES
     
     csv_file_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -839,6 +844,8 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
                     'レビュー日時': str(review.get('timestamp', '')).strip(),
                     'レビュー本文': str(review.get('text', '')).strip(),
                     'オーナー返信': str(review.get('response_of_owner', '')).strip(),
+                    'レビュー表示順位': str(review.get('review_display_order', '')).strip(),
+                    'レビュー取得ソート': str(review.get('review_sort', '')).strip(),
                     'レビュー要約': '',  # 要約は空
                     'レビューGID': str(review.get('review_gid', '')).strip()
                 })
@@ -853,6 +860,8 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
                     'レビュー日時': str(review.get('レビュー日時', '')).strip(),
                     'レビュー本文': str(review.get('レビュー本文', '')).strip(),
                     'オーナー返信': str(review.get('オーナー返信', '')).strip(),
+                    'レビュー表示順位': str(review.get('レビュー表示順位', '')).strip(),
+                    'レビュー取得ソート': str(review.get('レビュー取得ソート', '')).strip(),
                     'レビュー要約': str(review.get('レビュー要約', '')).strip(),
                     'レビューGID': str(review.get('レビューGID', '')).strip()
                 })
@@ -877,6 +886,7 @@ def main():
     logging.info(f'Dataset ID: {DATASET_ID}')
     logging.info(f'Days back: {DAYS_BACK}')
     logging.info(f'Batch size: {BATCH_SIZE}')
+    logging.info(f'Review sort: {REVIEW_SORT}')
     logging.info(f'処理範囲: 行{START_ROW}～{END_ROW if END_ROW else "最終行"}')
     
     # dental_new.csvを読み込み
@@ -919,7 +929,8 @@ def main():
             # 公式ドキュメント準拠: url と days_limit を指定
             payload = {
                 "url": url,
-                "days_limit": DAYS_BACK  # 公式では days_limit を使用
+                "days_limit": DAYS_BACK,  # 公式では days_limit を使用
+                "sort": REVIEW_SORT
             }
             urls_with_params.append(payload)
             facility_map[url] = entry
@@ -985,6 +996,7 @@ def main():
             batch_new_count = 0
             batch_skip_count = 0
             batch_error_count = 0
+            facility_review_order = {}
             
             # レビューを施設別に分類
             for review_item in reviews:
@@ -1009,6 +1021,8 @@ def main():
                 facility = facility_map[place_url]
                 facility_id = facility['facility_id']
                 facility_gid = facility['gid']
+                facility_review_order[facility_gid] = facility_review_order.get(facility_gid, 0) + 1
+                review_display_order = facility_review_order[facility_gid]
                 
                 # レビューデータを抽出
                 review_data = extract_review_data_from_api(review_item, facility_id, facility_gid)
@@ -1033,6 +1047,8 @@ def main():
                         'timestamp': review_data.get('timestamp', ''),
                         'text': review_data.get('text', ''),
                         'response_of_owner': review_data.get('response_of_owner', ''),
+                        'review_display_order': review_display_order,
+                        'review_sort': REVIEW_SORT,
                         'review_gid': review_gid
                     }
                     stats['new_reviews_list'].append(new_review)

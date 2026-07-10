@@ -110,6 +110,7 @@ def main() -> None:
     # オプション引数（環境変数から取得）
     optional_args = [
         ("DAYS_BACK",         "--days-back"),
+        ("REVIEW_SORT",       "--review-sort"),
         ("BATCH_SIZE",        "--batch-size"),
         ("MAX_WAIT_MINUTES",  "--max-wait-minutes"),
         ("DATASET_ID",        "--dataset-id"),
@@ -187,6 +188,7 @@ def main() -> int:
     parser.add_argument("--output", default="results/dental_new_reviews.csv", help="Output CSV path")
     parser.add_argument("--api-token", default=os.getenv("BRIGHTDATA_API_TOKEN"), help="BrightData API token")
     parser.add_argument("--days-back", type=int, default=10)
+    parser.add_argument("--review-sort", default="qualityScore", choices=["qualityScore", "newestFirst", "ratingHigh", "ratingLow"])
     parser.add_argument("--start-row", type=int, default=1)
     parser.add_argument("--end-row", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=50)
@@ -215,6 +217,7 @@ def main() -> int:
         "--input", args.input,
         "--output", args.output,
         "--days-back", str(args.days_back),
+        "--review-sort", args.review_sort,
         "--start-row", str(args.start_row),
         "--batch-size", str(args.batch_size),
         "--max-wait-minutes", str(args.max_wait_minutes),

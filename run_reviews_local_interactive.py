@@ -85,6 +85,14 @@ def main():
         default=10,
         help='何日前までのレビューを取得するか (デフォルト: 10)'
     )
+
+    parser.add_argument(
+        '--review-sort',
+        type=str,
+        default='qualityScore',
+        choices=['qualityScore', 'newestFirst', 'ratingHigh', 'ratingLow'],
+        help='レビューの取得順序 (qualityScore=関連度順, newestFirst=新着順)'
+    )
     
     parser.add_argument(
         '--batch-size',
@@ -425,6 +433,7 @@ def main():
             env['START_ROW'] = str(batch_start)
             env['END_ROW'] = str(batch_end)
             env['DAYS_BACK'] = str(args.days_back)
+            env['REVIEW_SORT'] = args.review_sort
             env['BATCH_SIZE'] = str(args.batch_size)
             env['MAX_WAIT_MINUTES'] = str(args.max_wait_minutes)
             env['BRIGHTDATA_API_TOKEN'] = args.api_token
@@ -557,6 +566,7 @@ def main():
         env['OUTPUT_CSV'] = str(Path(args.output).absolute())
         env['START_ROW'] = str(args.start_row)
         env['DAYS_BACK'] = str(args.days_back)
+        env['REVIEW_SORT'] = args.review_sort
         env['BATCH_SIZE'] = str(args.batch_size)
         env['MAX_WAIT_MINUTES'] = str(args.max_wait_minutes)
         env['BRIGHTDATA_API_TOKEN'] = args.api_token
