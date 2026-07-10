@@ -36,6 +36,10 @@ on:
         description: 'Rows per batch'
         required: false
         default: '500'
+      max_batches:
+        description: 'Maximum number of batches to run from start_from_batch (0 = all)'
+        required: false
+        default: '0'
       batch_wait:
         description: 'Deprecated; kept for compatibility'
         required: false
@@ -103,6 +107,10 @@ on:
         required: false
         type: string
         default: '500'
+      max_batches:
+        required: false
+        type: string
+        default: '0'
       batch_wait:
         required: false
         type: string
@@ -174,6 +182,7 @@ jobs:
           CSV_FILE: ${{ inputs.csv_file }}
           ROWS_PER_BATCH: ${{ inputs.rows_per_batch }}
           START_FROM_BATCH: ${{ inputs.start_from_batch }}
+          MAX_BATCHES: ${{ inputs.max_batches }}
           MAX_PARALLEL_JOBS: ${{ inputs.max_parallel_jobs }}
         run: |
           python - <<'PY'
@@ -182,9 +191,12 @@ jobs:
           csv_file = Path(os.environ["CSV_FILE"])
           rows_per_batch = int(os.environ["ROWS_PER_BATCH"])
           start_from_batch = int(os.environ["START_FROM_BATCH"])
+          max_batches = int(os.environ["MAX_BATCHES"])
           max_parallel_jobs = int(os.environ["MAX_PARALLEL_JOBS"])
           if rows_per_batch < 1 or start_from_batch < 1:
               raise SystemExit("rows_per_batch and start_from_batch must be greater than 0")
+          if max_batches < 0:
+              raise SystemExit("max_batches must be 0 or greater")
           if not 1 <= max_parallel_jobs <= 3:
               raise SystemExit("max_parallel_jobs must be between 1 and 3")
           if not csv_file.exists():
@@ -196,6 +208,8 @@ jobs:
               start_row = (batch - 1) * rows_per_batch + 1
               end_row = min(batch * rows_per_batch, total_rows)
               include.append({"batch_number": batch, "start_row": start_row, "end_row": end_row})
+              if max_batches and len(include) >= max_batches:
+                  break
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"matrix={json.dumps({'include': include}, separators=(',', ':'))}\n")
               out.write(f"total_rows={total_rows}\n")

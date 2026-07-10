@@ -429,6 +429,7 @@ jobs:
       review_sort: ${{ fromJson(needs.parse-and-route.outputs.params).review_sort || 'qualityScore' }}
       start_from_batch: ${{ fromJson(needs.parse-and-route.outputs.params).start_from_batch || '1' }}
       rows_per_batch: ${{ fromJson(needs.parse-and-route.outputs.params).rows_per_batch || '500' }}
+      max_batches: ${{ fromJson(needs.parse-and-route.outputs.params).max_batches || '0' }}
       batch_wait: ${{ fromJson(needs.parse-and-route.outputs.params).batch_wait || '120' }}
       api_batch_size: ${{ fromJson(needs.parse-and-route.outputs.params).api_batch_size || '50' }}
       max_parallel_jobs: ${{ fromJson(needs.parse-and-route.outputs.params).max_parallel_jobs || '3' }}
