@@ -158,12 +158,30 @@ const PRESETS = {
         }
     },
     reviews_sequential: {
-        'dental_new_default': {
-            name: '⚡ 新仕様・標準実行',
-            description: 'dental_new.csv を 500 行ずつ逐次処理',
+        'care_home': {
+            name: '🏥 老人ホームレビュー取得',
+            description: '老人ホーム施設データからレビューを逐次取得',
+            params: {
+                sequential_csv_file: 'results/care_roujin-home.csv',
+                sequential_output_file: 'results/care_roujin-home_reviews.csv',
+                sequential_days_back: '10',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_report_days: '10'
+            }
+        },
+        'dental_clinic': {
+            name: '🦷 歯科医院レビュー取得',
+            description: '歯科医院データからレビューを逐次取得',
             params: {
                 sequential_csv_file: 'results/dental_new.csv',
-                sequential_output_file: 'results/dental_new_reviews.csv',
+                sequential_output_file: 'results/dental_reviews.csv',
                 sequential_days_back: '10',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
@@ -178,11 +196,11 @@ const PRESETS = {
         },
         'marriage_consultation': {
             name: '💍 結婚相談所レビュー取得',
-            description: '結婚相談所データから60日分のレビューを逐次取得',
+            description: '結婚相談所データからレビューを逐次取得',
             params: {
                 sequential_csv_file: 'results/add_data_marriage_kihon.csv',
-                sequential_output_file: 'results/marriage_consultation_reviews.csv',
-                sequential_days_back: '60',
+                sequential_output_file: 'results/add_marriage_kihon_reviews.csv',
+                sequential_days_back: '10',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
                 sequential_max_parallel_jobs: '3',
@@ -191,16 +209,16 @@ const PRESETS = {
                 sequential_max_wait_minutes: '90',
                 sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
                 sequential_skip_column: 'GoogleMap',
-                sequential_report_days: '60'
+                sequential_report_days: '10'
             }
         },
         'funeral_home': {
-            name: '⚰️ 葬儀場レビュー取得',
-            description: '葬儀場データから60日分のレビューを逐次取得',
+            name: '⚰️ 葬儀施設レビュー取得',
+            description: '葬儀施設データからレビューを逐次取得',
             params: {
                 sequential_csv_file: 'results/funeral.csv',
-                sequential_output_file: 'results/funeral_reviews.csv',
-                sequential_days_back: '60',
+                sequential_output_file: 'results/funeral_review.csv',
+                sequential_days_back: '10',
                 sequential_start_from_batch: '1',
                 sequential_rows_per_batch: '500',
                 sequential_max_parallel_jobs: '3',
@@ -209,29 +227,34 @@ const PRESETS = {
                 sequential_max_wait_minutes: '90',
                 sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
                 sequential_skip_column: 'web',
-                sequential_report_days: '60'
-            }
-        },
-        'dental_clinic': {
-            name: '🦷 歯科クリニックレビュー取得',
-            description: '歯科クリニックデータから60日分のレビューを逐次取得',
-            params: {
-                sequential_csv_file: 'results/dental_new.csv',
-                sequential_output_file: 'results/dental_clinic_reviews.csv',
-                sequential_days_back: '60',
-                sequential_start_from_batch: '1',
-                sequential_rows_per_batch: '500',
-                sequential_max_parallel_jobs: '3',
-                sequential_batch_wait: '120',
-                sequential_api_batch_size: '50',
-                sequential_max_wait_minutes: '90',
-                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
-                sequential_skip_column: 'web',
-                sequential_report_days: '60'
+                sequential_report_days: '10'
             }
         }
     }
 };
+
+const SEQUENTIAL_INPUT_OUTPUT_PRESETS = [
+    {
+        label: '老人ホーム',
+        input: 'results/care_roujin-home.csv',
+        output: 'results/care_roujin-home_reviews.csv'
+    },
+    {
+        label: '歯科医院',
+        input: 'results/dental_new.csv',
+        output: 'results/dental_reviews.csv'
+    },
+    {
+        label: '結婚相談所',
+        input: 'results/add_data_marriage_kihon.csv',
+        output: 'results/add_marriage_kihon_reviews.csv'
+    },
+    {
+        label: '葬儀施設',
+        input: 'results/funeral.csv',
+        output: 'results/funeral_review.csv'
+    }
+];
 
 // GitHub APIでファイル一覧を取得
 async function fetchGitHubFiles(path) {
@@ -283,15 +306,18 @@ function getSequentialInputFiles(resultEntries) {
         .filter(entry => hasPurpose(entry, 'sequential_input'))
         .map(entry => entry.name);
 
-    if (fromPurpose.length > 0) {
-        return fromPurpose;
-    }
-
-    return resultEntries
+    const fallback = resultEntries
         .filter(entry => entry.extension === '.csv')
         .filter(entry => !hasPurpose(entry, 'review_output'))
         .filter(entry => !hasPurpose(entry, 'fid_input'))
         .map(entry => entry.name);
+
+    const merged = new Set([
+        ...SEQUENTIAL_INPUT_OUTPUT_PRESETS.map(preset => preset.input.replace(/^results\//, '')),
+        ...(fromPurpose.length > 0 ? fromPurpose : fallback)
+    ]);
+
+    return Array.from(merged);
 }
 
 function buildSequentialOutputCandidates(selectedInputPath = '') {
@@ -315,6 +341,12 @@ function buildSequentialOutputCandidates(selectedInputPath = '') {
     };
 
     if (selectedInputPath) {
+        SEQUENTIAL_INPUT_OUTPUT_PRESETS
+            .filter(preset => preset.input === selectedInputPath)
+            .forEach(preset => {
+                pushCandidate(preset.output, `⭐ ${preset.label}: ${preset.output.replace(/^results\//, '')}`);
+            });
+
         const inputFilename = selectedInputPath.split('/').pop() || '';
         let suggestedFilename = inputFilename.replace(/\.csv$/i, '_reviews.csv');
 
@@ -327,6 +359,10 @@ function buildSequentialOutputCandidates(selectedInputPath = '') {
             pushCandidate(`results/${suggestedFilename}`, `✨ 推奨: ${suggestedFilename}`);
         }
     }
+
+    SEQUENTIAL_INPUT_OUTPUT_PRESETS.forEach(preset => {
+        pushCandidate(preset.output, `${preset.label}: ${preset.output.replace(/^results\//, '')}`);
+    });
 
     existingReviewFiles.forEach(filename => {
         pushCandidate(`results/${filename}`, filename);
