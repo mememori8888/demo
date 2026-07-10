@@ -2,8 +2,8 @@
 const GITHUB_OWNER = 'mememori8888';
 const GITHUB_REPO = 'demo';
 const GITHUB_BRANCH = 'main';
-// データはプライベートリポジトリ (mememori8888/googlemap) に保存されています。
-// files.json はワークフロー実行時に自動生成・コミットされるため、GitHub APIは使用しません。
+const DATA_REPO = 'googlemap';
+const DATA_BRANCH = 'main';
 
 // グローバル変数
 let issueData = {};
@@ -257,18 +257,28 @@ const SEQUENTIAL_INPUT_OUTPUT_PRESETS = [
 ];
 
 // GitHub APIでファイル一覧を取得
-async function fetchGitHubFiles(path) {
+async function fetchGitHubFileEntries(path, inferPurposes) {
     try {
-        const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`;
+        const url = `https://api.github.com/repos/${GITHUB_OWNER}/${DATA_REPO}/contents/${path}?ref=${DATA_BRANCH}&t=${Date.now()}`;
         const response = await fetch(url);
         if (!response.ok) {
-            console.error(`Failed to fetch files from ${path}:`, response.status);
+            console.warn(`Failed to fetch latest files from ${DATA_REPO}/${path}:`, response.status);
             return [];
         }
         const files = await response.json();
-        return files.filter(file => file.type === 'file').map(file => file.name);
+        return normalizeFileEntries(
+            files
+                .filter(file => file.type === 'file')
+                .map(file => ({
+                    name: file.name,
+                    path: file.path,
+                    size: file.size
+                })),
+            path,
+            inferPurposes
+        );
     } catch (error) {
-        console.error(`Error fetching files from ${path}:`, error);
+        console.warn(`Error fetching latest files from ${DATA_REPO}/${path}:`, error);
         return [];
     }
 }
@@ -424,9 +434,14 @@ async function loadFileOptions() {
             staticResults = normalizeFileEntries(resultEntries, 'results', inferResultsPurposes);
         }
 
-        // データはプライベートリポジトリにあるため GitHub API による live fetch は行わない
-        fileCache.settings = staticSettings;
-        fileCache.results = staticResults.filter(entry => !shouldHideFromWebapp(entry));
+        const [liveSettings, liveResults] = await Promise.all([
+            fetchGitHubFileEntries('settings', inferSettingsPurposes),
+            fetchGitHubFileEntries('results', inferResultsPurposes)
+        ]);
+
+        fileCache.settings = mergeFileEntries(liveSettings, staticSettings);
+        fileCache.results = mergeFileEntries(liveResults, staticResults)
+            .filter(entry => !shouldHideFromWebapp(entry));
         
         // CSVファイルのみフィルタ
         const settingsCsvFiles = fileCache.settings.filter(entry => entry.extension === '.csv').map(entry => entry.name);
