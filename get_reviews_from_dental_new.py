@@ -49,7 +49,8 @@ DATASET_ID = os.getenv('BRIGHTDATA_DATASET_ID', 'gd_luzfs1dn2oa0teb81')  # Googl
 DAYS_BACK = int(os.getenv('DAYS_BACK', '10'))  # デフォルト10日分
 BATCH_SIZE = int(os.getenv('BATCH_SIZE', '100'))  # API 1回あたりの処理件数
 MAX_WAIT_MINUTES = int(os.getenv('MAX_WAIT_MINUTES', '60'))  # スナップショット待機時間
-REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')  # qualityScore=関連度順
+REQUESTED_REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')
+APPLIED_REVIEW_SORT = 'dataset_default'  # Google Maps Reviews dataset rejects a sort input field.
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
                      'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
                      'レビュー取得ソート', 'レビュー要約', 'レビューGID']
@@ -190,7 +191,8 @@ def validate_environment():
     logging.info(f"  Dataset ID: {DATASET_ID}")
     logging.info(f"  Days Back: {DAYS_BACK}")
     logging.info(f"  Batch Size: {BATCH_SIZE}")
-    logging.info(f"  Review Sort: {REVIEW_SORT}")
+    logging.info(f"  Requested Review Sort: {REQUESTED_REVIEW_SORT}")
+    logging.info(f"  Applied Review Sort: {APPLIED_REVIEW_SORT}")
     logging.info(f"  Max Wait Minutes: {MAX_WAIT_MINUTES}")
     
     # 入力ファイル確認
@@ -811,7 +813,7 @@ def match_reviews_with_existing(fetched_reviews: List[Dict], existing_gid_set: s
                 'text': review.get('text', ''),
                 'response_of_owner': review.get('response_of_owner', ''),
                 'review_display_order': review.get('review_display_order', ''),
-                'review_sort': review.get('review_sort', REVIEW_SORT),
+                'review_sort': review.get('review_sort', APPLIED_REVIEW_SORT),
                 'review_gid': review_gid
             })
             current_id += 1
@@ -886,7 +888,8 @@ def main():
     logging.info(f'Dataset ID: {DATASET_ID}')
     logging.info(f'Days back: {DAYS_BACK}')
     logging.info(f'Batch size: {BATCH_SIZE}')
-    logging.info(f'Review sort: {REVIEW_SORT}')
+    logging.info(f'Requested review sort: {REQUESTED_REVIEW_SORT}')
+    logging.info(f'Applied review sort: {APPLIED_REVIEW_SORT}')
     logging.info(f'処理範囲: 行{START_ROW}～{END_ROW if END_ROW else "最終行"}')
     
     # dental_new.csvを読み込み
@@ -929,8 +932,7 @@ def main():
             # 公式ドキュメント準拠: url と days_limit を指定
             payload = {
                 "url": url,
-                "days_limit": DAYS_BACK,  # 公式では days_limit を使用
-                "sort": REVIEW_SORT
+                "days_limit": DAYS_BACK  # 公式では days_limit を使用
             }
             urls_with_params.append(payload)
             facility_map[url] = entry
@@ -1048,7 +1050,7 @@ def main():
                         'text': review_data.get('text', ''),
                         'response_of_owner': review_data.get('response_of_owner', ''),
                         'review_display_order': review_display_order,
-                        'review_sort': REVIEW_SORT,
+                        'review_sort': APPLIED_REVIEW_SORT,
                         'review_gid': review_gid
                     }
                     stats['new_reviews_list'].append(new_review)
