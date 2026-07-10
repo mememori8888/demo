@@ -47,10 +47,10 @@ on:
         type: string
         default: 'qualityScore'
       max_reviews_per_facility:
-        description: 'Maximum reviews to fetch per facility before date filtering (0 = all)'
+        description: 'Maximum reviews to fetch per facility before date filtering'
         required: false
         type: string
-        default: '0'
+        default: '50'
       review_file:
         description: 'Review output file path (leave empty to use config)'
         required: false
@@ -99,10 +99,10 @@ on:
         type: string
         default: 'qualityScore'
       max_reviews_per_facility:
-        description: 'Maximum reviews to fetch per facility before date filtering (0 = all)'
+        description: 'Maximum reviews to fetch per facility before date filtering'
         required: false
         type: string
-        default: '0'
+        default: '50'
       review_file:
         description: 'Review output file path'
         required: false

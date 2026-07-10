@@ -50,7 +50,7 @@ MAX_WORKERS = int(os.getenv('MAX_WORKERS', '10'))  # 並列処理数（環境変
 BATCH_SIZE = 50  # バッチサイズ
 REVIEW_SORT = os.getenv('REVIEW_SORT', 'qualityScore')  # qualityScore=関連度順
 REVIEW_DAYS_BACK = int(os.getenv('REVIEW_DAYS_BACK', os.getenv('DAYS_BACK', '30')))
-MAX_REVIEWS_PER_FACILITY = int(os.getenv('MAX_REVIEWS_PER_FACILITY', '0'))  # 0=全レビューを取得してから期間で絞り込み
+MAX_REVIEWS_PER_FACILITY = int(os.getenv('MAX_REVIEWS_PER_FACILITY', '50'))
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
                      'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
                      'レビュー取得ソート', 'レビュー要約', 'レビューGID']
@@ -544,8 +544,7 @@ def is_review_within_days(review_item, days_back):
 
 def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=None):
     """BrightData APIからレビューを取得（ページネーション対応）"""
-    max_reviews = MAX_REVIEWS_PER_FACILITY if max_reviews is None else max_reviews
-    fetch_all_reviews = max_reviews <= 0
+    max_reviews = max_reviews or MAX_REVIEWS_PER_FACILITY
     if not API_TOKEN:
         error_msg = 'BRIGHTDATA_API_TOKEN environment variable not set'
         print(f'❌ {error_msg}')
@@ -590,14 +589,13 @@ def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=None):
         'Content-Type': 'application/json'
     }
     
-    target_label = 'all reviews' if fetch_all_reviews else f'{max_reviews} reviews'
-    print(f'  📡 Fetching reviews for FID: {fid} (sort: {REVIEW_SORT}, target: {target_label}, days_back: {REVIEW_DAYS_BACK})')
+    print(f'  📡 Fetching reviews for FID: {fid} (sort: {REVIEW_SORT}, target: {max_reviews} reviews, days_back: {REVIEW_DAYS_BACK})')
     
     all_reviews = []
     page = 0
     reviews_per_page = 10  # Googleは通常10件ずつ返す
     
-    while fetch_all_reviews or len(all_reviews) < max_reviews:
+    while len(all_reviews) < max_reviews:
         start = page * reviews_per_page
         
         # レビューURLを構築（startパラメータでページネーション）
@@ -690,7 +688,7 @@ def fetch_reviews_from_api(fid, facility_id, gid, max_reviews=None):
     print(f'  📅 Date filter: {len(all_reviews)}/{before_filter} reviews within {REVIEW_DAYS_BACK} days')
     
     # 最大件数でトリム
-    if not fetch_all_reviews and len(all_reviews) > max_reviews:
+    if len(all_reviews) > max_reviews:
         all_reviews = all_reviews[:max_reviews]
         print(f'  📊 Trimmed to {max_reviews} reviews')
     
@@ -1177,7 +1175,7 @@ def main():
     parser.add_argument('--process-count', type=int, help='処理件数')
     parser.add_argument('--days-back', type=int, default=REVIEW_DAYS_BACK, help='何日前までのレビューを残すか')
     parser.add_argument('--review-sort', default=REVIEW_SORT, choices=['qualityScore', 'newestFirst', 'ratingHigh', 'ratingLow'], help='SERP APIのレビューソート')
-    parser.add_argument('--max-reviews-per-facility', type=int, default=MAX_REVIEWS_PER_FACILITY, help='施設ごとの最大取得レビュー数（0=全レビューを取得してから期間で絞り込み）')
+    parser.add_argument('--max-reviews-per-facility', type=int, default=MAX_REVIEWS_PER_FACILITY, help='施設ごとの最大取得レビュー数')
     
     args = parser.parse_args()
     
@@ -1197,8 +1195,7 @@ def main():
     print('='*80)
     print(f'レビューソート: {REVIEW_SORT}')
     print(f'期間フィルタ: 直近 {REVIEW_DAYS_BACK} 日')
-    max_reviews_label = '全レビュー' if MAX_REVIEWS_PER_FACILITY <= 0 else str(MAX_REVIEWS_PER_FACILITY)
-    print(f'施設ごとの最大取得レビュー数: {max_reviews_label}')
+    print(f'施設ごとの最大取得レビュー数: {MAX_REVIEWS_PER_FACILITY}')
     
     # ログ設定を初期化
     setup_logging()
