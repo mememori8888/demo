@@ -416,7 +416,7 @@ jobs:
       workers: ${{ fromJson(needs.parse-and-route.outputs.params).workers || '10' }}
       days_back: ${{ fromJson(needs.parse-and-route.outputs.params).days_back || '30' }}
       review_sort: ${{ fromJson(needs.parse-and-route.outputs.params).review_sort || 'qualityScore' }}
-      max_reviews_per_facility: ${{ fromJson(needs.parse-and-route.outputs.params).max_reviews_per_facility || '50' }}
+      max_reviews_per_facility: ${{ fromJson(needs.parse-and-route.outputs.params).max_reviews_per_facility || '0' }}
 
   run-reviews-sequential:
     needs: [parse-and-route, validate-request]
