@@ -29,6 +29,14 @@ OUTPUT_CSV = Path(os.getenv('OUTPUT_CSV', 'results/dental_new_reviews.csv'))
 if not OUTPUT_CSV.is_absolute():
     OUTPUT_CSV = BASE_DIR / OUTPUT_CSV
 
+recent_reviews_csv_env = os.getenv('RECENT_REVIEWS_CSV', '')
+if recent_reviews_csv_env:
+    RECENT_REVIEWS_CSV = Path(recent_reviews_csv_env)
+    if not RECENT_REVIEWS_CSV.is_absolute():
+        RECENT_REVIEWS_CSV = BASE_DIR / RECENT_REVIEWS_CSV
+else:
+    RECENT_REVIEWS_CSV = None
+
 # 増分ファイル（新規レビューのみ）
 update_csv_env = os.getenv('UPDATE_CSV', '')
 if update_csv_env:
@@ -53,7 +61,8 @@ APPLIED_REVIEW_SORT = 'qualityScore'  # Dataset API default; sort input is rejec
 ALLOW_PARTIAL_FAILURE = os.getenv('ALLOW_PARTIAL_FAILURE', 'false').lower() in ('1', 'true', 'yes')
 REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー評価', 'レビュワー名',
                      'レビュー日時', 'レビュー本文', 'オーナー返信', 'レビュー表示順位',
-                     'レビュー取得ソート', 'レビュー要約', 'レビューGID']
+                     'レビュー取得ソート', '関連度ランク', '関連度取得ソート', '関連度取得日時',
+                     'レビュー要約', 'レビューGID']
 
 
 def safe_read_csv(filepath):
@@ -847,6 +856,9 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
                     'オーナー返信': str(review.get('response_of_owner', '')).strip(),
                     'レビュー表示順位': str(review.get('review_display_order', '')).strip(),
                     'レビュー取得ソート': str(review.get('review_sort', '')).strip(),
+                    '関連度ランク': str(review.get('relevance_rank', '')).strip(),
+                    '関連度取得ソート': str(review.get('relevance_sort', '')).strip(),
+                    '関連度取得日時': str(review.get('relevance_fetched_at', '')).strip(),
                     'レビュー要約': '',  # 要約は空
                     'レビューGID': str(review.get('review_gid', '')).strip()
                 })
@@ -863,9 +875,38 @@ def save_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
                     'オーナー返信': str(review.get('オーナー返信', '')).strip(),
                     'レビュー表示順位': str(review.get('レビュー表示順位', '')).strip(),
                     'レビュー取得ソート': str(review.get('レビュー取得ソート', '')).strip(),
+                    '関連度ランク': str(review.get('関連度ランク', '')).strip(),
+                    '関連度取得ソート': str(review.get('関連度取得ソート', '')).strip(),
+                    '関連度取得日時': str(review.get('関連度取得日時', '')).strip(),
                     'レビュー要約': str(review.get('レビュー要約', '')).strip(),
                     'レビューGID': str(review.get('レビューGID', '')).strip()
                 })
+
+
+def save_recent_reviews_to_csv(csv_file_path: Path, reviews: List[Dict]):
+    """今回のDataset取得で返った期間内レビューを、既存/新規を問わず保存する。"""
+    csv_file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=REVIEW_FIELDNAMES)
+        writer.writeheader()
+        for review in reviews:
+            writer.writerow({
+                'レビューID': '',
+                '施設ID': str(review.get('facility_id', '')).strip(),
+                '施設GID': str(review.get('facility_gid', '')).strip(),
+                'レビュワー評価': str(review.get('rating', '')).strip(),
+                'レビュワー名': str(review.get('reviewer_name', '')).strip(),
+                'レビュー日時': str(review.get('timestamp', '')).strip(),
+                'レビュー本文': str(review.get('text', '')).strip(),
+                'オーナー返信': str(review.get('response_of_owner', '')).strip(),
+                'レビュー表示順位': str(review.get('review_display_order', '')).strip(),
+                'レビュー取得ソート': str(review.get('review_sort', '')).strip(),
+                '関連度ランク': '',
+                '関連度取得ソート': '',
+                '関連度取得日時': '',
+                'レビュー要約': '',
+                'レビューGID': str(review.get('review_gid', '')).strip()
+            })
 
 
 def main():
@@ -884,6 +925,8 @@ def main():
     logging.info(f'出力CSV: {OUTPUT_CSV}')
     if UPDATE_CSV:
         logging.info(f'増分CSV: {UPDATE_CSV}')
+    if RECENT_REVIEWS_CSV:
+        logging.info(f'期間内レビューCSV: {RECENT_REVIEWS_CSV}')
     logging.info(f'Dataset ID: {DATASET_ID}')
     logging.info(f'Days back: {DAYS_BACK}')
     logging.info(f'Batch size: {BATCH_SIZE}')
@@ -948,6 +991,7 @@ def main():
         'new_reviews': 0,
         'skipped_reviews': 0,
         'new_reviews_list': [],
+        'recent_reviews_list': [],
         'failed_batches': 0,
         'successful_batches': 0
     }
@@ -1030,7 +1074,10 @@ def main():
                 if not review_data:
                     batch_error_count += 1
                     continue
-                
+                review_data['review_display_order'] = review_display_order
+                review_data['review_sort'] = APPLIED_REVIEW_SORT
+                stats['recent_reviews_list'].append(review_data)
+
                 stats['total_fetched_reviews'] += 1
                 
                 # 既存のGIDと照合
@@ -1128,6 +1175,11 @@ def main():
         save_reviews_to_csv(UPDATE_CSV, stats['new_reviews_list'])
         logging.info(f'\n📄 増分ファイル: {UPDATE_CSV}')
         logging.info(f'   新規レビュー: {len(stats["new_reviews_list"])}件')
+
+    if RECENT_REVIEWS_CSV:
+        save_recent_reviews_to_csv(RECENT_REVIEWS_CSV, stats['recent_reviews_list'])
+        logging.info(f'\n📄 期間内レビュー一覧: {RECENT_REVIEWS_CSV}')
+        logging.info(f'   Dataset取得レビュー: {len(stats["recent_reviews_list"])}件')
 
     if stats['failed_batches'] > 0 and not ALLOW_PARTIAL_FAILURE:
         raise RuntimeError(f'APIチャンクが {stats["failed_batches"]} 件失敗しました')

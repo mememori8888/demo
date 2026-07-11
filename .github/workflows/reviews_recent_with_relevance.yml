@@ -1,0 +1,272 @@
+name: BrightData recent reviews with relevance ranks
+
+on:
+  workflow_dispatch:
+    inputs:
+      csv_file:
+        description: 'Input facility CSV file'
+        required: true
+        default: 'results/dental_new.csv'
+      output_file:
+        description: 'Review output CSV to update'
+        required: true
+        default: 'results/dental_reviews.csv'
+      days_back:
+        description: 'Days back for Dataset API'
+        required: true
+        default: '30'
+      start_from_batch:
+        description: 'Start from batch number'
+        required: false
+        default: '1'
+      rows_per_batch:
+        description: 'Rows per batch'
+        required: false
+        default: '500'
+      max_batches:
+        description: 'Maximum number of batches to run from start_from_batch (0 = all)'
+        required: false
+        default: '0'
+      api_batch_size:
+        description: 'Dataset API batch size'
+        required: false
+        default: '50'
+      max_parallel_jobs:
+        description: 'Maximum parallel Dataset batches'
+        required: false
+        default: '3'
+      max_wait_minutes:
+        description: 'Dataset snapshot wait minutes'
+        required: false
+        default: '90'
+      dataset_id:
+        description: 'BrightData Dataset ID'
+        required: false
+        default: 'gd_luzfs1dn2oa0teb81'
+      skip_column:
+        description: 'Skip rows when this column is empty'
+        required: false
+        default: 'web'
+      relevance_rank_limit:
+        description: 'SERP relevance ranks to fetch per facility'
+        required: false
+        default: '10'
+      serp_max_workers:
+        description: 'Maximum parallel SERP API requests'
+        required: false
+        default: '3'
+      serp_zone_name:
+        description: 'BrightData SERP API zone name'
+        required: false
+        default: 'serp_api2'
+      summary_file:
+        description: 'Relevance summary CSV'
+        required: false
+        default: 'results/relevance_rank_summary.csv'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      total_rows: ${{ steps.plan.outputs.total_rows }}
+      total_batches: ${{ steps.plan.outputs.total_batches }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+      - name: Copy private data
+        run: |
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+      - name: Build dynamic matrix
+        id: plan
+        env:
+          CSV_FILE: ${{ inputs.csv_file }}
+          ROWS_PER_BATCH: ${{ inputs.rows_per_batch }}
+          START_FROM_BATCH: ${{ inputs.start_from_batch }}
+          MAX_BATCHES: ${{ inputs.max_batches }}
+          MAX_PARALLEL_JOBS: ${{ inputs.max_parallel_jobs }}
+        run: |
+          python - <<'PY'
+          import json, math, os
+          from pathlib import Path
+          csv_file = Path(os.environ["CSV_FILE"])
+          rows_per_batch = int(os.environ["ROWS_PER_BATCH"])
+          start_from_batch = int(os.environ["START_FROM_BATCH"])
+          max_batches = int(os.environ["MAX_BATCHES"])
+          max_parallel_jobs = int(os.environ["MAX_PARALLEL_JOBS"])
+          if rows_per_batch < 1 or start_from_batch < 1:
+              raise SystemExit("rows_per_batch and start_from_batch must be greater than 0")
+          if max_batches < 0:
+              raise SystemExit("max_batches must be 0 or greater")
+          if not 1 <= max_parallel_jobs <= 3:
+              raise SystemExit("max_parallel_jobs must be between 1 and 3")
+          if not csv_file.exists():
+              raise SystemExit(f"CSV file not found: {csv_file}")
+          total_rows = max(sum(1 for _ in csv_file.open("r", encoding="utf-8-sig", errors="ignore")) - 1, 0)
+          total_batches = math.ceil(total_rows / rows_per_batch) if total_rows else 0
+          include = []
+          for batch in range(start_from_batch, total_batches + 1):
+              start_row = (batch - 1) * rows_per_batch + 1
+              end_row = min(batch * rows_per_batch, total_rows)
+              include.append({"batch_number": batch, "start_row": start_row, "end_row": end_row})
+              if max_batches and len(include) >= max_batches:
+                  break
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"matrix={json.dumps({'include': include}, separators=(',', ':'))}\n")
+              out.write(f"total_rows={total_rows}\n")
+              out.write(f"total_batches={total_batches}\n")
+          print(f"total_rows={total_rows}, total_batches={total_batches}, selected_batches={len(include)}")
+          PY
+
+  run-dataset-batches:
+    needs: prepare
+    if: needs.prepare.outputs.total_batches != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJson(inputs.max_parallel_jobs) }}
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+      - name: Copy private data
+        run: |
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+          mkdir -p results/reviews_parallel results/logs
+      - name: Run Dataset batch
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          ZONE_NAME: ${{ inputs.serp_zone_name }}
+          INPUT_CSV: ${{ inputs.csv_file }}
+          OUTPUT_CSV: results/reviews_parallel/output_batch_${{ matrix.batch_number }}.csv
+          UPDATE_CSV: results/reviews_parallel/reviews_batch_${{ matrix.batch_number }}.csv
+          RECENT_REVIEWS_CSV: results/reviews_parallel/recent_batch_${{ matrix.batch_number }}.csv
+          START_ROW: ${{ matrix.start_row }}
+          END_ROW: ${{ matrix.end_row }}
+          DAYS_BACK: ${{ inputs.days_back }}
+          API_BATCH_SIZE: ${{ inputs.api_batch_size }}
+          MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes }}
+          DATASET_ID: ${{ inputs.dataset_id }}
+          SKIP_COLUMN: ${{ inputs.skip_column }}
+        run: |
+          set -o pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e BRIGHTDATA_API_TOKEN \
+            -e ZONE_NAME \
+            -e RECENT_REVIEWS_CSV \
+            python:3.12-slim \
+            sh -lc '
+              set -eu
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+              python run_reviews_local_interactive.py \
+                --non-interactive \
+                --input "'"$INPUT_CSV"'" \
+                --output "'"$OUTPUT_CSV"'" \
+                --start-row "'"$START_ROW"'" \
+                --end-row "'"$END_ROW"'" \
+                --days-back "'"$DAYS_BACK"'" \
+                --batch-size "'"$API_BATCH_SIZE"'" \
+                --max-wait-minutes "'"$MAX_WAIT_MINUTES"'" \
+                --dataset-id "'"$DATASET_ID"'" \
+                --skip-column "'"$SKIP_COLUMN"'" \
+                --update "'"$UPDATE_CSV"'"
+            ' 2>&1 | tee "results/logs/batch_${{ matrix.batch_number }}.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recent-relevance-batch-${{ matrix.batch_number }}
+          path: |
+            results/reviews_parallel/*.csv
+            results/logs/batch_${{ matrix.batch_number }}.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  merge-and-enrich:
+    needs: [prepare, run-dataset-batches]
+    if: needs.run-dataset-batches.result == 'success' && needs.prepare.outputs.total_batches != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+      - name: Copy private data
+        run: |
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: recent-relevance-batch-*
+          path: downloaded-batches
+          merge-multiple: true
+      - name: Merge Dataset review batches
+        env:
+          OUTPUT_FILE: ${{ inputs.output_file }}
+          MERGE_TO_ALL_REGIONS: 'false'
+        run: |
+          BATCH_PATTERN='downloaded-batches/**/reviews_batch_*.csv' python scripts/merge_review_batches.py
+      - name: Enrich relevance ranks from SERP API
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          BRIGHTDATA_ZONE_NAME: ${{ inputs.serp_zone_name }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python scripts/enrich_review_relevance_ranks.py \
+            --review-file "${{ inputs.output_file }}" \
+            --facility-file "${{ inputs.csv_file }}" \
+            --recent-review-glob "downloaded-batches/**/recent_batch_*.csv" \
+            --summary-file "${{ inputs.summary_file }}" \
+            --rank-limit "${{ inputs.relevance_rank_limit }}" \
+            --max-workers "${{ inputs.serp_max_workers }}"
+      - name: Save to private data repository
+        run: |
+          mkdir -p "private-data/$(dirname '${{ inputs.output_file }}')"
+          cp "${{ inputs.output_file }}" "private-data/${{ inputs.output_file }}"
+          if [ -f "${{ inputs.summary_file }}" ]; then
+            mkdir -p "private-data/$(dirname '${{ inputs.summary_file }}')"
+            cp "${{ inputs.summary_file }}" "private-data/${{ inputs.summary_file }}"
+          fi
+          cd private-data
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add results/
+          git diff --staged --quiet || (git commit -m "Update recent reviews with relevance ranks - $(date +'%Y-%m-%d %H:%M:%S')" && git pull --rebase origin main && git push)
+      - name: Summary
+        run: |
+          echo "## Recent reviews with relevance ranks" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Input: \`${{ inputs.csv_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Output: \`${{ inputs.output_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Days back: \`${{ inputs.days_back }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Relevance rank limit: \`${{ inputs.relevance_rank_limit }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SERP cost basis: top 10 = 1 request per facility that had recent Dataset reviews" >> "$GITHUB_STEP_SUMMARY"
