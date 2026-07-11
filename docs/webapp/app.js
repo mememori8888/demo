@@ -8,7 +8,7 @@ const DATA_BRANCH = 'main';
 // グローバル変数
 let issueData = {};
 let currentWorkflow = '';
-const ALLOWED_WEBAPP_WORKFLOWS = ['reviews', 'reviews_sequential', 'facility'];
+const ALLOWED_WEBAPP_WORKFLOWS = ['reviews', 'reviews_sequential', 'reviews_recent_relevance', 'facility'];
 let fileCache = {
     settings: [],
     results: []
@@ -228,6 +228,96 @@ const PRESETS = {
                 sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
                 sequential_skip_column: 'web',
                 sequential_report_days: '10'
+            }
+        }
+    },
+    reviews_recent_relevance: {
+        'dental_clinic': {
+            name: '🦷 歯科医院・30日関連度ランク',
+            description: '直近30日の歯科レビューを取得し、関連度上位10位までを照合',
+            params: {
+                sequential_csv_file: 'results/dental_new.csv',
+                sequential_output_file: 'results/dental_reviews.csv',
+                sequential_days_back: '30',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_relevance_rank_limit: '10',
+                sequential_serp_max_workers: '3',
+                sequential_serp_zone_name: 'serp_api2',
+                sequential_summary_file: 'results/dental_relevance_rank_summary.csv',
+                sequential_report_days: '30'
+            }
+        },
+        'marriage_consultation': {
+            name: '💍 婚活相談所・30日関連度ランク',
+            description: '直近30日の婚活相談所レビューを取得し、関連度上位10位までを照合',
+            params: {
+                sequential_csv_file: 'results/add_data_marriage_kihon.csv',
+                sequential_output_file: 'results/add_marriage_kihon_reviews.csv',
+                sequential_days_back: '30',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'GoogleMap',
+                sequential_relevance_rank_limit: '10',
+                sequential_serp_max_workers: '3',
+                sequential_serp_zone_name: 'serp_api2',
+                sequential_summary_file: 'results/marriage_relevance_rank_summary.csv',
+                sequential_report_days: '30'
+            }
+        },
+        'funeral_home': {
+            name: '⚰️ 葬儀施設・30日関連度ランク',
+            description: '直近30日の葬儀施設レビューを取得し、関連度上位10位までを照合',
+            params: {
+                sequential_csv_file: 'results/funeral.csv',
+                sequential_output_file: 'results/funeral_review.csv',
+                sequential_days_back: '30',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_relevance_rank_limit: '10',
+                sequential_serp_max_workers: '3',
+                sequential_serp_zone_name: 'serp_api2',
+                sequential_summary_file: 'results/funeral_relevance_rank_summary.csv',
+                sequential_report_days: '30'
+            }
+        },
+        'care_facility': {
+            name: '🏥 介護施設・30日関連度ランク',
+            description: '直近30日の介護施設レビューを取得し、関連度上位10位までを照合',
+            params: {
+                sequential_csv_file: 'results/care_roujin-home.csv',
+                sequential_output_file: 'results/care_roujin-home_reviews.csv',
+                sequential_days_back: '30',
+                sequential_start_from_batch: '1',
+                sequential_rows_per_batch: '500',
+                sequential_max_parallel_jobs: '3',
+                sequential_batch_wait: '120',
+                sequential_api_batch_size: '50',
+                sequential_max_wait_minutes: '90',
+                sequential_dataset_id: 'gd_luzfs1dn2oa0teb81',
+                sequential_skip_column: 'web',
+                sequential_relevance_rank_limit: '10',
+                sequential_serp_max_workers: '3',
+                sequential_serp_zone_name: 'serp_api2',
+                sequential_summary_file: 'results/care_relevance_rank_summary.csv',
+                sequential_report_days: '30'
             }
         }
     }
@@ -508,7 +598,7 @@ function applyPreset(presetKey) {
     if (!preset) return;
     
     // 現在のワークフローのすべてのフィールドをリセット
-    const currentForm = document.getElementById(`form_${currentWorkflow}`);
+    const currentForm = document.getElementById(getFormIdForWorkflow(currentWorkflow));
     if (currentForm) {
         // すべてのinput/selectをクリア
         currentForm.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach(input => {
@@ -544,6 +634,13 @@ function applyPreset(presetKey) {
     });
     
     alert(`✅ プリセット「${preset.name}」を適用しました`);
+}
+
+function getFormIdForWorkflow(workflow) {
+    if (workflow === 'reviews_recent_relevance') {
+        return 'form_reviews_sequential';
+    }
+    return `form_${workflow}`;
 }
 
 // プリセット選択UIを生成
@@ -593,7 +690,7 @@ function switchWorkflow() {
     
     // 選択されたフォームを表示 & required属性を有効化
     if (workflowType) {
-        const targetForm = document.getElementById(`form_${workflowType}`);
+        const targetForm = document.getElementById(getFormIdForWorkflow(workflowType));
         if (targetForm) {
             targetForm.style.display = 'block';
             // 表示フォーム内のrequired要素を有効化
@@ -601,6 +698,11 @@ function switchWorkflow() {
                 input.disabled = false;
             });
         }
+    }
+
+    const relevanceSection = document.getElementById('relevance_settings_section');
+    if (relevanceSection) {
+        relevanceSection.style.display = workflowType === 'reviews_recent_relevance' ? 'block' : 'none';
     }
     
     // プリセットオプションを更新
@@ -619,7 +721,7 @@ function validateFormEnhanced() {
         if (processCount < 0) errors.push('処理件数は0以上を指定してください');
     }
 
-    if (currentWorkflow === 'reviews_sequential') {
+    if (currentWorkflow === 'reviews_sequential' || currentWorkflow === 'reviews_recent_relevance') {
         const csvFile = document.getElementById('sequential_csv_file')?.value || '';
         const outputFile = document.getElementById('sequential_output_file')?.value || '';
         const outputFileNew = document.getElementById('sequential_output_file_new')?.value.trim() || '';
@@ -632,6 +734,10 @@ function validateFormEnhanced() {
         const maxWaitMinutes = parseInt(document.getElementById('sequential_max_wait_minutes')?.value || '0');
         const datasetId = document.getElementById('sequential_dataset_id')?.value.trim() || '';
         const skipColumn = document.getElementById('sequential_skip_column')?.value.trim() || '';
+        const relevanceRankLimit = parseInt(document.getElementById('sequential_relevance_rank_limit')?.value || '0');
+        const serpMaxWorkers = parseInt(document.getElementById('sequential_serp_max_workers')?.value || '0');
+        const serpZoneName = document.getElementById('sequential_serp_zone_name')?.value.trim() || '';
+        const summaryFile = document.getElementById('sequential_summary_file')?.value.trim() || '';
 
         if (!csvFile) {
             errors.push('入力CSVファイルを選択してください');
@@ -665,6 +771,20 @@ function validateFormEnhanced() {
         }
         if (!skipColumn) {
             errors.push('skip_column を入力してください');
+        }
+        if (currentWorkflow === 'reviews_recent_relevance') {
+            if (!Number.isInteger(relevanceRankLimit) || relevanceRankLimit < 1) {
+                errors.push('relevance_rank_limit は1以上の整数を指定してください');
+            }
+            if (!Number.isInteger(serpMaxWorkers) || serpMaxWorkers < 1 || serpMaxWorkers > 3) {
+                errors.push('serp_max_workers は1〜3の整数を指定してください');
+            }
+            if (!serpZoneName) {
+                errors.push('serp_zone_name を入力してください');
+            }
+            if (!summaryFile) {
+                errors.push('summary_file を入力してください');
+            }
         }
     }
     
@@ -734,6 +854,7 @@ function getFormData() {
             break;
 
         case 'reviews_sequential':
+        case 'reviews_recent_relevance':
             const sequentialOutputFile = document.getElementById('sequential_output_file')?.value;
             const sequentialOutputFileNew = document.getElementById('sequential_output_file_new')?.value.trim();
 
@@ -754,6 +875,13 @@ function getFormData() {
             data.generate_report = document.getElementById('sequential_generate_report').checked;
             const reportDaysValue = document.getElementById('sequential_report_days').value.trim();
             data.report_days = reportDaysValue || null; // 空の場合はnull（全期間を意味する）
+            if (currentWorkflow === 'reviews_recent_relevance') {
+                data.relevance_rank_limit = document.getElementById('sequential_relevance_rank_limit').value;
+                data.serp_max_workers = document.getElementById('sequential_serp_max_workers').value;
+                data.serp_zone_name = document.getElementById('sequential_serp_zone_name').value.trim();
+                const summaryFileValue = document.getElementById('sequential_summary_file').value.trim();
+                data.summary_file = summaryFileValue.startsWith('results/') ? summaryFileValue : `results/${summaryFileValue}`;
+            }
             break;
             
         case 'facility':
@@ -820,7 +948,7 @@ function validateForm() {
         }
     }
 
-    if (currentWorkflow === 'reviews_sequential') {
+    if (currentWorkflow === 'reviews_sequential' || currentWorkflow === 'reviews_recent_relevance') {
         const reportDays = document.getElementById('sequential_report_days')?.value;
         if (reportDays && parseInt(reportDays) < 1) {
             alert('⚠️ report_days は1以上を指定してください');
@@ -836,6 +964,7 @@ function generateIssueBody(data) {
     const commandMap = {
         'reviews': '/run-reviews',
         'reviews_sequential': '/run-reviews-sequential',
+        'reviews_recent_relevance': '/run-reviews-relevance',
         'facility': '/run-facility'
     };
     
@@ -869,7 +998,10 @@ function generateIssueBody(data) {
             break;
 
         case 'reviews_sequential':
-            body += `### ⚡ レビュー取得・新仕様逐次実行\n\n`;
+        case 'reviews_recent_relevance':
+            body += data.workflow === 'reviews_recent_relevance'
+                ? `### ⭐ レビュー取得・30日関連度ランク付き\n\n`
+                : `### ⚡ レビュー取得・新仕様逐次実行\n\n`;
             body += `- **入力CSV**: \`${data.csv_file}\`\n`;
             body += `- **出力CSV**: \`${data.output_file}\`\n`;
             body += `- **Days back**: ${data.days_back}日\n`;
@@ -881,6 +1013,12 @@ function generateIssueBody(data) {
             body += `- **待機時間上限**: ${data.max_wait_minutes}分\n`;
             body += `- **Dataset ID**: \`${data.dataset_id}\`\n`;
             body += `- **Skip column**: \`${data.skip_column}\`\n`;
+            if (data.workflow === 'reviews_recent_relevance') {
+                body += `- **関連度ランク上限**: ${data.relevance_rank_limit}位\n`;
+                body += `- **SERP API並列数**: ${data.serp_max_workers}\n`;
+                body += `- **SERP Zone**: \`${data.serp_zone_name}\`\n`;
+                body += `- **サマリーCSV**: \`${data.summary_file}\`\n`;
+            }
             body += `- **レポート生成**: ${data.generate_report ? '有効' : '無効'}\n`;
             if (data.report_days) {
                 body += `- **レポート日数**: ${data.report_days}日\n`;
@@ -935,6 +1073,7 @@ function openIssue() {
     const workflowNames = {
         'reviews': 'Reviews Job',
         'reviews_sequential': 'Reviews Sequential Job',
+        'reviews_recent_relevance': 'Reviews Relevance Job',
         'facility': 'Facility Job'
     };
     

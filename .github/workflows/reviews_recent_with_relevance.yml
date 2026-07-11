@@ -63,6 +63,73 @@ on:
         description: 'Relevance summary CSV'
         required: false
         default: 'results/relevance_rank_summary.csv'
+  workflow_call:
+    inputs:
+      csv_file:
+        required: true
+        type: string
+        default: 'results/dental_new.csv'
+      output_file:
+        required: true
+        type: string
+        default: 'results/dental_reviews.csv'
+      days_back:
+        required: true
+        type: string
+        default: '30'
+      start_from_batch:
+        required: false
+        type: string
+        default: '1'
+      rows_per_batch:
+        required: false
+        type: string
+        default: '500'
+      max_batches:
+        required: false
+        type: string
+        default: '0'
+      api_batch_size:
+        required: false
+        type: string
+        default: '50'
+      max_parallel_jobs:
+        required: false
+        type: string
+        default: '3'
+      max_wait_minutes:
+        required: false
+        type: string
+        default: '90'
+      dataset_id:
+        required: false
+        type: string
+        default: 'gd_luzfs1dn2oa0teb81'
+      skip_column:
+        required: false
+        type: string
+        default: 'web'
+      relevance_rank_limit:
+        required: false
+        type: string
+        default: '10'
+      serp_max_workers:
+        required: false
+        type: string
+        default: '3'
+      serp_zone_name:
+        required: false
+        type: string
+        default: 'serp_api2'
+      summary_file:
+        required: false
+        type: string
+        default: 'results/relevance_rank_summary.csv'
+    secrets:
+      BRIGHTDATA_API_TOKEN:
+        required: true
+      PRIVATE_REPO_PAT:
+        required: true
 
 permissions:
   contents: write

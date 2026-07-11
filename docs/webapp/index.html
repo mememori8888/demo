@@ -22,6 +22,7 @@
                     <option value="">選択してください</option>
                     <option value="reviews">📝 レビュー取得 (Reviews)</option>
                     <option value="reviews_sequential">⚡ レビュー取得・新仕様逐次実行 (Reviews Sequential)</option>
+                    <option value="reviews_recent_relevance">⭐ レビュー取得・30日関連度ランク付き</option>
                     <option value="facility">🏢 施設データ取得 (Facility)</option>
                 </select>
             </div>
@@ -168,6 +169,34 @@
                             <label for="sequential_skip_column">skip_column *</label>
                             <input type="text" id="sequential_skip_column" value="web" required aria-required="true" aria-label="skip列名（必須）" aria-describedby="sequential_skip_column_help">
                             <small id="sequential_skip_column_help">この列が空の行は処理しません</small>
+                        </div>
+                    </div>
+
+                    <div class="form-section" id="relevance_settings_section">
+                        <h3>⭐ 関連度ランク</h3>
+
+                        <div class="form-group">
+                            <label for="sequential_relevance_rank_limit">relevance_rank_limit</label>
+                            <input type="number" id="sequential_relevance_rank_limit" value="10" min="1" max="50" aria-label="関連度ランク取得上限">
+                            <small>Googleレビューの関連度順で何位まで取得するか</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_serp_max_workers">serp_max_workers</label>
+                            <input type="number" id="sequential_serp_max_workers" value="3" min="1" max="3" aria-label="SERP API並列数">
+                            <small>SERP APIで関連度ランクを取得する並列数（最大3）</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_serp_zone_name">serp_zone_name</label>
+                            <input type="text" id="sequential_serp_zone_name" value="serp_api2" aria-label="SERP API Zone名">
+                            <small>BrightData SERP APIのZone名</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sequential_summary_file">summary_file</label>
+                            <input type="text" id="sequential_summary_file" value="results/relevance_rank_summary.csv" aria-label="関連度ランクサマリーファイル">
+                            <small>関連度ランク照合結果のサマリーCSV</small>
                         </div>
                     </div>
 
