@@ -1,0 +1,44 @@
+name: TEMP SERP API diagnostic test
+
+on:
+  workflow_dispatch:
+    inputs:
+      fid:
+        description: 'Facility FID to test'
+        required: true
+        default: '0x89c25855c0679529:0x2a34371cb33f3c80'
+      format:
+        description: 'response format (raw or json)'
+        required: false
+        default: 'raw'
+      zone:
+        description: 'BrightData zone name'
+        required: false
+        default: 'serp_api2'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call BrightData SERP API
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          FID: ${{ inputs.fid }}
+          FORMAT: ${{ inputs.format }}
+          ZONE: ${{ inputs.zone }}
+        run: |
+          echo "zone=$ZONE format=$FORMAT fid=$FID"
+          echo "--- request 1: no brd_json param ---"
+          curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
+            -d "{\"zone\": \"$ZONE\", \"url\": \"https://www.google.com/reviews?fid=$FID\", \"format\": \"$FORMAT\"}" \
+            | head -c 3000
+          echo ""
+          echo "--- request 2: with brd_json=1 & sort & hl (script's actual pattern) ---"
+          curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
+            -d "{\"zone\": \"$ZONE\", \"url\": \"https://www.google.com/reviews?fid=$FID&start=0&sort=qualityScore&hl=ja&brd_json=1\", \"format\": \"json\"}" \
+            | head -c 3000
+          echo ""
