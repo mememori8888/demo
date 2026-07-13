@@ -180,11 +180,21 @@ def fetch_relevance_reviews(api_token, zone_name, fid, rank_limit, timeout):
         page_reviews = extract_reviews(parsed)
         if not page_reviews:
             if page == 0:
+                outer_keys = sorted(response_json.keys()) if isinstance(response_json, dict) else None
+                outer_meta = {
+                    k: response_json.get(k)
+                    for k in ("status_code", "status", "url", "warning", "error", "headers")
+                    if isinstance(response_json, dict) and k in response_json
+                }
                 if isinstance(parsed, dict):
                     diag = f"keys={sorted(parsed.keys())}"
                 else:
                     diag = f"type={type(parsed).__name__} value={str(parsed)[:200]}"
-                print(f"WARN fid={fid}: SERP APIレスポンスからレビューを抽出できませんでした ({diag})")
+                print(
+                    f"WARN fid={fid}: SERP APIレスポンスからレビューを抽出できませんでした "
+                    f"(body {diag}, response全体のキー={outer_keys}, "
+                    f"メタ情報={outer_meta}, raw先頭500文字='{response.text[:500]}')"
+                )
             break
         reviews.extend(page_reviews)
         if len(page_reviews) < REVIEWS_PER_PAGE:
