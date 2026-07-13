@@ -3,6 +3,7 @@ name: オーケストレーション
 permissions:
   contents: write
   issues: write
+  actions: read
 
 on:
   issues:
