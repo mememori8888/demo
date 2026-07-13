@@ -19,7 +19,7 @@ jobs:
           url = 'https://api.brightdata.com/request'
           payload = {
               'zone': 'serp_api2',
-              'url': 'https://www.google.com/reviews?fid=%E6%A3%AE%E3%81%AE%E9%A2%A8%E3%82%A4%E3%83%B3%E3%83%97%E3%83%A9%E3%83%B3%E3%83%88%E6%AD%AF%E7%A7%91%E3%82%AF%E3%83%AA%E3%83%8B%E3%83%83%E3%82%AF&brd_json=1&hl=ja',
+              'url': 'https://www.google.com/reviews?fid=0x5f9ef701da32a885:0x4997e35492a49d17&brd_json=1&hl=ja',
               'format': 'json',
               'data_format': 'parsed',
               'method': 'GET'
