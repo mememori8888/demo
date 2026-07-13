@@ -1,6 +1,9 @@
 name: TEMP SERP API diagnostic test
 
 on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_serp_test.yml'
   workflow_dispatch:
     inputs:
       fid:
@@ -23,9 +26,9 @@ jobs:
       - name: Call BrightData SERP API
         env:
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
-          FID: ${{ inputs.fid }}
-          FORMAT: ${{ inputs.format }}
-          ZONE: ${{ inputs.zone }}
+          FID: ${{ inputs.fid || '0x89c25855c0679529:0x2a34371cb33f3c80' }}
+          FORMAT: ${{ inputs.format || 'raw' }}
+          ZONE: ${{ inputs.zone || 'serp_api2' }}
         run: |
           echo "zone=$ZONE format=$FORMAT fid=$FID"
           echo "--- request 1: no brd_json param ---"
