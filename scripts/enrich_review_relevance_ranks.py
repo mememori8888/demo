@@ -126,7 +126,13 @@ def parse_response_body(response_json):
     if isinstance(body, str):
         if body.startswith(")]}',"):
             body = body[5:]
-        return json.loads(body)
+        try:
+            return json.loads(body)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"SERP APIレスポンスのbodyがJSONとして解析できません "
+                f"(body先頭300文字='{body[:300]}'): {exc}"
+            ) from exc
     return body
 
 
@@ -159,8 +165,18 @@ def fetch_relevance_reviews(api_token, zone_name, fid, rank_limit, timeout):
         payload = {"zone": zone_name, "url": url, "format": "json"}
         response = requests.post(API_ENDPOINT, headers=headers, json=payload, timeout=timeout)
         if response.status_code != 200:
-            raise RuntimeError(f"SERP API HTTP {response.status_code}: {response.text[:300]}")
-        parsed = parse_response_body(response.json())
+            raise RuntimeError(
+                f"SERP API HTTP {response.status_code} (zone={zone_name}): {response.text[:300]}"
+            )
+        try:
+            response_json = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"SERP APIのレスポンスがJSONではありません (zone={zone_name}, "
+                f"content-type={response.headers.get('Content-Type')}, "
+                f"body先頭300文字='{response.text[:300]}'): {exc}"
+            ) from exc
+        parsed = parse_response_body(response_json)
         page_reviews = extract_reviews(parsed)
         if not page_reviews:
             break
