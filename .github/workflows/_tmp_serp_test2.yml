@@ -34,5 +34,23 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
             -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}?hl=ja&brd_json=1\", \"format\": \"json\"}" \
-            | head -c 3000
-          echo ""
+            > /tmp/response_c.json
+          echo "size: $(wc -c < /tmp/response_c.json) bytes"
+          python3 -c "
+import json
+with open('/tmp/response_c.json') as f:
+    data = json.load(f)
+body = data.get('body')
+if isinstance(body, str):
+    body = json.loads(body)
+print('top-level keys:', list(body.keys()) if isinstance(body, dict) else type(body))
+place = body.get('place', {}) if isinstance(body, dict) else {}
+print('place keys:', list(place.keys()))
+reviews = place.get('reviews') or body.get('reviews')
+print('reviews field type:', type(reviews))
+if isinstance(reviews, list):
+    print('reviews count:', len(reviews))
+    print('first review:', json.dumps(reviews[0], ensure_ascii=False)[:1000] if reviews else None)
+else:
+    print('reviews raw value:', str(reviews)[:500])
+"
