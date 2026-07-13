@@ -30,11 +30,11 @@ jobs:
             | head -c 3000
           echo ""
           echo "--- request C: fid style with reviews path + hl ---"
-          curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
+          curl -sS -X POST https://api.brightdata.com/request \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
             -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}?hl=ja&brd_json=1\", \"format\": \"json\"}" \
-            > /tmp/response_c.json
+            -o /tmp/response_c.json
           echo "size: $(wc -c < /tmp/response_c.json) bytes"
           python3 -c "
           import json
