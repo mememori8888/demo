@@ -375,6 +375,35 @@ jobs:
               if not params.get("skip_column"):
                   errors.append(f"{workflow} では skip_column が必須です。")
 
+              # フェイルセーフ: rows_per_batch が小さすぎる/max_batches未指定でCSVが大きいと
+              # GitHub Actionsのmatrix上限(256)やジョブ出力上限(1MB)を超えて実行時に失敗するため、事前に検知する
+              MAX_MATRIX_JOBS = 256
+              try:
+                  rows_per_batch_val = int(str(params.get("rows_per_batch", "0") or "0"))
+                  start_from_batch_val = int(str(params.get("start_from_batch", "1") or "1"))
+                  max_batches_val = int(str(params.get("max_batches", "0") or "0"))
+              except ValueError:
+                  rows_per_batch_val = start_from_batch_val = max_batches_val = None
+
+              if (
+                  rows_per_batch_val
+                  and start_from_batch_val
+                  and max_batches_val is not None
+                  and csv_file
+                  and os.path.exists(data_path(csv_file))
+              ):
+                  with open(data_path(csv_file), "r", encoding="utf-8-sig", errors="ignore") as f:
+                      total_rows = max(sum(1 for _ in f) - 1, 0)
+                  total_batches = -(-total_rows // rows_per_batch_val) if total_rows else 0  # ceil
+                  remaining_batches = max(total_batches - start_from_batch_val + 1, 0)
+                  selected_batches = min(remaining_batches, max_batches_val) if max_batches_val else remaining_batches
+                  if selected_batches > MAX_MATRIX_JOBS:
+                      errors.append(
+                          f"{workflow}: 選択されるバッチ数({selected_batches})がGitHub Actionsの上限({MAX_MATRIX_JOBS})を"
+                          f"超えています。rows_per_batch を増やすか、max_batches を{MAX_MATRIX_JOBS}以下に設定してください。"
+                          f"（csv_file の行数={total_rows}, rows_per_batch={rows_per_batch_val} 時の総バッチ数={total_batches}）"
+                      )
+
               if workflow == "reviews_recent_relevance":
                   for key in ["relevance_rank_limit", "serp_max_workers"]:
                       value = params.get(key)

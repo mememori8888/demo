@@ -190,6 +190,13 @@ jobs:
               include.append({"batch_number": batch, "start_row": start_row, "end_row": end_row})
               if max_batches and len(include) >= max_batches:
                   break
+          MAX_MATRIX_JOBS = 256  # GitHub Actionsのmatrix上限（フェイルセーフ）
+          if len(include) > MAX_MATRIX_JOBS:
+              raise SystemExit(
+                  f"選択されたバッチ数({len(include)})がGitHub Actionsの上限({MAX_MATRIX_JOBS})を超えています。 "
+                  f"rows_per_batch を増やすか、max_batches を{MAX_MATRIX_JOBS}以下に設定してください。"
+                  f" (total_rows={total_rows}, total_batches={total_batches})"
+              )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"matrix={json.dumps({'include': include}, separators=(',', ':'))}\n")
               out.write(f"total_rows={total_rows}\n")
