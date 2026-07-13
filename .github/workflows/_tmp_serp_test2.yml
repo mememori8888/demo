@@ -22,17 +22,17 @@ jobs:
             -d "{\"zone\": \"$ZONE\", \"url\": \"$PLACE_URL\", \"format\": \"raw\"}" \
             | head -c 1500
           echo ""
-          echo "--- request B: brd_json=1 auto-parse ---"
+          echo "--- request B: brd_json=1 auto-parse (correct ?query syntax) ---"
           curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
-            -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}&brd_json=1\", \"format\": \"json\"}" \
+            -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}?brd_json=1\", \"format\": \"json\"}" \
             | head -c 3000
           echo ""
           echo "--- request C: fid style with reviews path + hl ---"
           curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
-            -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}&hl=ja\", \"format\": \"raw\"}" \
-            | head -c 1500
+            -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}?hl=ja&brd_json=1\", \"format\": \"json\"}" \
+            | head -c 3000
           echo ""
