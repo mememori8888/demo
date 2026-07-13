@@ -1,0 +1,57 @@
+name: TEMP SERP API diagnostic test 4
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_serp_test4.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call BrightData Google Reviews endpoint with new payload shape
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+        run: |
+          python3 -c "
+          import requests, json
+
+          url = 'https://api.brightdata.com/request'
+          payload = {
+              'zone': 'serp_api2',
+              'url': 'https://www.google.com/reviews?fid=%E6%A3%AE%E3%81%AE%E9%A2%A8%E3%82%A4%E3%83%B3%E3%83%97%E3%83%A9%E3%83%B3%E3%83%88%E6%AD%AF%E7%A7%91%E3%82%AF%E3%83%AA%E3%83%8B%E3%83%83%E3%82%AF&brd_json=1&hl=ja',
+              'format': 'json',
+              'data_format': 'parsed',
+              'method': 'GET',
+              'direct': True
+          }
+          headers = {
+              'Authorization': 'Bearer ' + '$BRIGHTDATA_API_TOKEN',
+              'Content-Type': 'application/json'
+          }
+          response = requests.post(url, json=payload, headers=headers, timeout=60)
+          print('HTTP status:', response.status_code)
+          text = response.text
+          print('raw length:', len(text))
+          print('raw head:', text[:1500])
+          try:
+              data = response.json()
+              body = data.get('body') if isinstance(data, dict) else data
+              if isinstance(body, str):
+                  try:
+                      body = json.loads(body)
+                  except Exception as e:
+                      print('body json.loads failed:', e)
+              if isinstance(body, dict):
+                  print('body top-level keys:', list(body.keys()))
+                  reviews = body.get('reviews') or body.get('review_results')
+                  print('reviews type:', type(reviews))
+                  if isinstance(reviews, list):
+                      print('reviews count:', len(reviews))
+                      if reviews:
+                          print('first review:', json.dumps(reviews[0], ensure_ascii=False)[:1500])
+              else:
+                  print('body type:', type(body), 'value head:', str(body)[:500])
+          except Exception as e:
+              print('overall parse failed:', e)
+          "
