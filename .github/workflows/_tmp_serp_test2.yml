@@ -1,0 +1,38 @@
+name: TEMP SERP API diagnostic test 2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp_serp_test2.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call BrightData SERP API with maps/place URL
+        env:
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          ZONE: serp_api2
+          PLACE_URL: 'https://www.google.com/maps/place/data=!3m1!4b1!4m2!3m1!1s0x5f9ef701da32a885:0x4997e35492a49d17'
+        run: |
+          echo "--- request A: raw HTML (no brd_json) ---"
+          curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
+            -d "{\"zone\": \"$ZONE\", \"url\": \"$PLACE_URL\", \"format\": \"raw\"}" \
+            | head -c 1500
+          echo ""
+          echo "--- request B: brd_json=1 auto-parse ---"
+          curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
+            -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}&brd_json=1\", \"format\": \"json\"}" \
+            | head -c 3000
+          echo ""
+          echo "--- request C: fid style with reviews path + hl ---"
+          curl -sS -w "\nHTTP_STATUS:%{http_code}\n" -X POST https://api.brightdata.com/request \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $BRIGHTDATA_API_TOKEN" \
+            -d "{\"zone\": \"$ZONE\", \"url\": \"${PLACE_URL}&hl=ja\", \"format\": \"raw\"}" \
+            | head -c 1500
+          echo ""
