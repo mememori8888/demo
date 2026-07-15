@@ -562,8 +562,7 @@ class BrightDataWebScraperReviews:
             if not self.wait_for_snapshot(snapshot_id, max_wait_minutes=MAX_WAIT_MINUTES):
                 elapsed = time.time() - start_time
                 raise RuntimeError(
-                    f"バッチ {batch_id}: スナップショット処理失敗（タイムアウトまたはエラー）"
-                    f" 総処理時間: {int(elapsed)}秒"
+                    f"バッチ {batch_id}: スナップショット処理失敗（タイムアウトまたはエラー） 総処理時間: {int(elapsed)}秒"
                 )
             wait_elapsed = time.time() - wait_start
             
