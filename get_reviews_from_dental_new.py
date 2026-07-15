@@ -68,7 +68,17 @@ REVIEW_FIELDNAMES = ['レビューID', '施設ID', '施設GID', 'レビュワー
 
 
 def parse_int_env(name: str, default: int, minimum: Optional[int] = None) -> int:
-    """整数環境変数を安全に読み取る（不正値はデフォルトにフォールバック）。"""
+    """
+    整数環境変数を安全に読み取る。
+
+    Args:
+        name: 環境変数名
+        default: 変換失敗時に使用するデフォルト値
+        minimum: 最小許容値（指定時）。下回る場合は minimum を適用
+
+    Returns:
+        整数値。無効値や最小値未満は安全側の値にフォールバックする。
+    """
     raw = os.getenv(name, str(default))
     try:
         value = int(raw)
@@ -381,7 +391,10 @@ class BrightDataWebScraperReviews:
                 continue
             if last_error is not None:
                 raise last_error
-            raise RuntimeError("Failed to trigger snapshot: reached impossible retry state")
+            raise RuntimeError(
+                "Failed to trigger snapshot: retry loop ended without success or captured error "
+                "(internal logic inconsistency)"
+            )
     
     def wait_for_snapshot(self, snapshot_id: str, max_wait_minutes: int = 60) -> bool:
         """
