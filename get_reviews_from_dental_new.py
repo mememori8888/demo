@@ -560,10 +560,9 @@ class BrightDataWebScraperReviews:
             
             wait_start = time.time()
             if not self.wait_for_snapshot(snapshot_id, max_wait_minutes=MAX_WAIT_MINUTES):
-                logging.error(f"❌ バッチ {batch_id}: スナップショット処理失敗")
                 elapsed = time.time() - start_time
                 logging.error(f"  総処理時間: {int(elapsed)}秒")
-                return []
+                raise RuntimeError(f"バッチ {batch_id}: スナップショット処理失敗（タイムアウトまたはエラー）")
             wait_elapsed = time.time() - wait_start
             
             logging.info(f"✅ スナップショット処理完了 ({wait_elapsed:.1f}秒)")
@@ -1030,9 +1029,9 @@ def main():
             reviews = client.process_batch(urls_with_params, batch_id=str(batch_idx))
             
             if not reviews:
-                logging.warning(f'❌ APIチャンク {batch_idx} でレビューが取得できませんでした')
-                stats['failed_batches'] += 1
-                logging.info(f'   結果: 失敗 (リビュー取得0件)')
+                logging.warning(f'⚠️ APIチャンク {batch_idx}: レビュー取得数0件（対象期間内にレビューなし）')
+                stats['successful_batches'] += 1
+                logging.info(f'   結果: 完了 (取得レビュー0件)')
                 continue
             
             logging.info(f'✅ APIチャンク {batch_idx}: {len(reviews)}件のレビュー取得完了')
