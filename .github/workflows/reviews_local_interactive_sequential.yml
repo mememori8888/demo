@@ -291,7 +291,13 @@ jobs:
 
   merge-results:
     needs: [prepare, run-batches]
-    if: needs.run-batches.result == 'success' && needs.prepare.outputs.total_batches != '0'
+    # フェイルセーフ: 一部バッチが失敗しても、成功した分の取得済みデータは失わずマージする
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.total_batches != '0' &&
+      needs.run-batches.result != 'cancelled' &&
+      needs.run-batches.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -318,6 +324,7 @@ jobs:
           OUTPUT_FILE: ${{ inputs.output_file }}
           ALL_REGIONS_FILE: ${{ inputs.all_regions_file }}
           MERGE_TO_ALL_REGIONS: ${{ inputs.merge_to_all_regions }}
+          INCREMENT_FILE: results/increments/reviews_increment_${{ github.run_id }}.csv
         run: |
           BATCH_PATTERN='downloaded-batches/**/reviews_batch_*.csv' python scripts/merge_review_batches.py
       - name: Save to private data repository
@@ -327,6 +334,10 @@ jobs:
           if [ "${{ inputs.merge_to_all_regions }}" = "true" ] && [ -f "${{ inputs.all_regions_file }}" ]; then
             mkdir -p "private-data/$(dirname '${{ inputs.all_regions_file }}')"
             cp "${{ inputs.all_regions_file }}" "private-data/${{ inputs.all_regions_file }}"
+          fi
+          if [ -f "results/increments/reviews_increment_${{ github.run_id }}.csv" ]; then
+            mkdir -p "private-data/results/increments"
+            cp "results/increments/reviews_increment_${{ github.run_id }}.csv" "private-data/results/increments/"
           fi
           cd private-data
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -339,3 +350,8 @@ jobs:
           echo "- Total rows: ${{ needs.prepare.outputs.total_rows }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Total batches: ${{ needs.prepare.outputs.total_batches }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Max parallel jobs: ${{ inputs.max_parallel_jobs }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- run-batches result: ${{ needs.run-batches.result }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.run-batches.result }}" != "success" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ 一部バッチが失敗しましたが、成功したバッチのデータはマージ済みです。Actionsの実行一覧で失敗バッチ(赤い✗)の start_row/end_row を確認し、start_from_batch を指定して再実行してください。" >> "$GITHUB_STEP_SUMMARY"
+          fi

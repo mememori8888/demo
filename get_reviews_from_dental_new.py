@@ -91,14 +91,7 @@ def safe_read_csv(filepath):
     raise ValueError(f"{filepath} を対応しているエンコーディングで読み込めませんでした。ファイルをUTF-8で保存し直してください。")
 
 
-def is_disallowed_update_output(path: Path) -> bool:
-    """不要な中間ファイルの出力を抑止する。"""
-    return bool(re.match(r'^reviews_batch_\d+\.csv$', path.name.lower()))
 
-
-if UPDATE_CSV and is_disallowed_update_output(UPDATE_CSV):
-    print(f"INFO: 増分CSV '{UPDATE_CSV.name}' は出力対象外のため生成をスキップします。")
-    UPDATE_CSV = None
 
 
 def setup_logging():

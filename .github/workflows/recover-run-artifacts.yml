@@ -1,0 +1,102 @@
+name: 過去実行アーティファクトの復旧マージ
+
+# 目的: 一部バッチ失敗時にマージがスキップされていたバグの影響を受けた過去実行から、
+# 取得済みレビューCSVを回収してプライベートリポジトリの既存ファイルへ安全にマージする。
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: '復旧対象のワークフロー実行ID（例: 29402706646）'
+        required: true
+      artifact_pattern:
+        description: 'ダウンロード対象アーティファクト名パターン'
+        required: true
+        default: 'reviews-sequential-batch-*'
+      output_file:
+        description: '既存レビューファイル（プライベートリポジトリ内、マージ先）'
+        required: true
+        default: 'results/dental_reviews.csv'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  recover-and-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout private data
+        uses: actions/checkout@v4
+        with:
+          repository: mememori8888/googlemap
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: private-data
+          sparse-checkout: |
+            settings
+            results
+
+      - name: Copy private data
+        run: |
+          cp -r private-data/settings ./settings
+          cp -r private-data/results ./results
+
+      - name: Download artifacts from source run
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.source_run_id }}
+          pattern: ${{ inputs.artifact_pattern }}
+          path: downloaded-batches
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show recovered file stats
+        run: |
+          echo "回収したCSVファイル一覧:"
+          find downloaded-batches -name "*.csv" | sort
+          echo ""
+          echo "合計行数（参考値・複数行レビュー本文を含むため実レビュー数とは異なる）:"
+          find downloaded-batches -name "*.csv" -exec cat {} \; | wc -l
+
+      - name: Merge recovered batch CSVs into existing review file
+        env:
+          OUTPUT_FILE: ${{ inputs.output_file }}
+          INCREMENT_FILE: results/increments/recovered_increment_${{ inputs.source_run_id }}.csv
+        run: |
+          set -eu
+          # reviews_batch_*.csv（増分ファイル）が存在すればそれを優先的にマージ対象にする。
+          # 過去バグの影響で reviews_batch_*.csv が生成されていない実行の場合は
+          # output_batch_*.csv（バッチごとの全量出力）をフォールバックとして使う。
+          if find downloaded-batches -name "reviews_batch_*.csv" | grep -q .; then
+            BATCH_PATTERN='downloaded-batches/**/reviews_batch_*.csv' python scripts/merge_review_batches.py
+          else
+            echo "INFO: reviews_batch_*.csv が見つからないため output_batch_*.csv をマージ対象にします。"
+            BATCH_PATTERN='downloaded-batches/**/output_batch_*.csv' python scripts/merge_review_batches.py
+          fi
+
+      - name: Save to private data repository
+        run: |
+          mkdir -p "private-data/$(dirname '${{ inputs.output_file }}')"
+          cp "${{ inputs.output_file }}" "private-data/${{ inputs.output_file }}"
+          if [ -f "results/increments/recovered_increment_${{ inputs.source_run_id }}.csv" ]; then
+            mkdir -p "private-data/results/increments"
+            cp "results/increments/recovered_increment_${{ inputs.source_run_id }}.csv" "private-data/results/increments/"
+          fi
+          cd private-data
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add results/
+          git diff --staged --quiet || (git commit -m "Recover reviews from run ${{ inputs.source_run_id }} - $(date +'%Y-%m-%d %H:%M:%S')" && git pull --rebase origin main && git push)
+
+      - name: Summary
+        run: |
+          echo "## 過去実行アーティファクトの復旧マージ" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 復旧元 run_id: \`${{ inputs.source_run_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- マージ先: \`${{ inputs.output_file }}\`（プライベートリポジトリ）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- マージ後の行数: $(wc -l < '${{ inputs.output_file }}')" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "results/increments/recovered_increment_${{ inputs.source_run_id }}.csv" ]; then
+            echo "- 増分ファイル: \`results/increments/recovered_increment_${{ inputs.source_run_id }}.csv\`（プライベートリポジトリ）" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -84,6 +84,7 @@ def merge_batches(output_file, batch_pattern):
             merged[key] = normalized
 
     next_id = next_review_id(merged.values())
+    new_keys = []
     for filename in sorted(glob.glob(batch_pattern, recursive=True)):
         for row in read_rows(filename):
             normalized = normalize_row(row)
@@ -95,13 +96,27 @@ def merge_batches(output_file, batch_pattern):
             next_id += 1
             order.append(key)
             merged[key] = normalized
+            new_keys.append(key)
 
     rows = [merged[key] for key in order]
     with output.open("w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
-    return rows
+
+    # 既存ファイルに無かった新規追加分のみ（増分）
+    new_rows = [merged[key] for key in new_keys]
+    return rows, new_rows
+
+
+def write_increment_file(increment_file, new_rows):
+    """今回のマージで新規追加された行のみを別ファイルに書き出す（増分出力）。"""
+    increment = Path(increment_file)
+    increment.parent.mkdir(parents=True, exist_ok=True)
+    with increment.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        writer.writeheader()
+        writer.writerows(new_rows)
 
 
 def merge_to_all_regions(all_regions_file, rows):
@@ -133,10 +148,15 @@ def merge_to_all_regions(all_regions_file, rows):
 def main():
     output_file = os.environ["OUTPUT_FILE"]
     batch_pattern = os.environ["BATCH_PATTERN"]
-    rows = merge_batches(output_file, batch_pattern)
+    rows, new_rows = merge_batches(output_file, batch_pattern)
 
     if os.environ.get("MERGE_TO_ALL_REGIONS", "false").lower() == "true":
         merge_to_all_regions(os.environ["ALL_REGIONS_FILE"], rows)
+
+    increment_file = os.environ.get("INCREMENT_FILE", "").strip()
+    if increment_file:
+        write_increment_file(increment_file, new_rows)
+        print(f"Incremental rows: {len(new_rows)} -> {increment_file}")
 
     print(f"Merged rows: {len(rows)}")
 

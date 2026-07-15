@@ -281,7 +281,13 @@ jobs:
 
   merge-and-enrich:
     needs: [prepare, run-dataset-batches]
-    if: needs.run-dataset-batches.result == 'success' && needs.prepare.outputs.total_batches != '0'
+    # フェイルセーフ: 一部バッチが失敗しても、成功した分の取得済みデータは失わずマージする
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.total_batches != '0' &&
+      needs.run-dataset-batches.result != 'cancelled' &&
+      needs.run-dataset-batches.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -307,6 +313,7 @@ jobs:
         env:
           OUTPUT_FILE: ${{ inputs.output_file }}
           MERGE_TO_ALL_REGIONS: 'false'
+          INCREMENT_FILE: results/increments/recent_relevance_increment_${{ github.run_id }}.csv
         run: |
           BATCH_PATTERN='downloaded-batches/**/reviews_batch_*.csv' python scripts/merge_review_batches.py
       - name: Enrich relevance ranks from SERP API
@@ -331,6 +338,10 @@ jobs:
             mkdir -p "private-data/$(dirname '${{ inputs.summary_file }}')"
             cp "${{ inputs.summary_file }}" "private-data/${{ inputs.summary_file }}"
           fi
+          if [ -f "results/increments/recent_relevance_increment_${{ github.run_id }}.csv" ]; then
+            mkdir -p "private-data/results/increments"
+            cp "results/increments/recent_relevance_increment_${{ github.run_id }}.csv" "private-data/results/increments/"
+          fi
           cd private-data
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
@@ -344,3 +355,8 @@ jobs:
           echo "- Days back: \`${{ inputs.days_back }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Relevance rank limit: \`${{ inputs.relevance_rank_limit }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- SERP cost basis: top 10 = 1 request per facility that had recent Dataset reviews" >> "$GITHUB_STEP_SUMMARY"
+          echo "- run-dataset-batches result: ${{ needs.run-dataset-batches.result }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.run-dataset-batches.result }}" != "success" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ 一部バッチが失敗しましたが、成功したバッチのデータはマージ済みです。Actionsの実行一覧で失敗バッチ(赤い✗)の start_row/end_row を確認し、start_from_batch を指定して再実行してください。" >> "$GITHUB_STEP_SUMMARY"
+          fi
