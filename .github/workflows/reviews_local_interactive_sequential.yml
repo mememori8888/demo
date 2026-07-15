@@ -244,6 +244,7 @@ jobs:
         env:
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
           ZONE_NAME: ${{ secrets.BRIGHTDATA_ZONE_NAME || 'serp_api2' }}
+          ALLOW_PARTIAL_FAILURE: "true"
           INPUT_CSV: ${{ inputs.csv_file }}
           OUTPUT_CSV: results/reviews_parallel/output_batch_${{ matrix.batch_number }}.csv
           UPDATE_CSV: results/reviews_parallel/reviews_batch_${{ matrix.batch_number }}.csv
@@ -261,6 +262,7 @@ jobs:
             -w /workspace \
             -e BRIGHTDATA_API_TOKEN \
             -e ZONE_NAME \
+            -e ALLOW_PARTIAL_FAILURE \
             python:3.12-slim \
             sh -lc '
               set -eu
