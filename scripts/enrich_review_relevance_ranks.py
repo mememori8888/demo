@@ -12,7 +12,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import requests
 
@@ -164,7 +164,11 @@ def fetch_relevance_reviews(api_token, zone_name, fid, rank_limit, timeout):
 
     for page in range(pages):
         start = page * REVIEWS_PER_PAGE
-        url = f"https://www.google.com/reviews?fid={fid}&start={start}&sort={RELEVANCE_SORT}&hl=ja"
+        encoded_fid = quote(fid, safe="")
+        url = (
+            f"https://www.google.com/reviews?fid={encoded_fid}"
+            f"&start={start}&sort={RELEVANCE_SORT}&hl=ja&brd_json=parsed_light"
+        )
         payload = {"zone": zone_name, "url": url, "format": "raw"}
         response = requests.post(API_ENDPOINT, headers=headers, json=payload, timeout=timeout)
         if response.status_code != 200:
