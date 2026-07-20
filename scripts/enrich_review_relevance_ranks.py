@@ -122,7 +122,10 @@ def load_recent_review_facilities(patterns):
 
 
 def parse_response_body(response_json):
-    body = response_json.get("body") if isinstance(response_json, dict) else response_json
+    if isinstance(response_json, dict) and "body" in response_json:
+        body = response_json.get("body")
+    else:
+        body = response_json
     if isinstance(body, str):
         if body.startswith(")]}',"):
             body = body[5:]
@@ -161,8 +164,8 @@ def fetch_relevance_reviews(api_token, zone_name, fid, rank_limit, timeout):
 
     for page in range(pages):
         start = page * REVIEWS_PER_PAGE
-        url = f"https://www.google.com/reviews?fid={fid}&start={start}&sort={RELEVANCE_SORT}&hl=ja&brd_json=1"
-        payload = {"zone": zone_name, "url": url, "format": "json"}
+        url = f"https://www.google.com/reviews?fid={fid}&start={start}&sort={RELEVANCE_SORT}&hl=ja"
+        payload = {"zone": zone_name, "url": url, "format": "raw"}
         response = requests.post(API_ENDPOINT, headers=headers, json=payload, timeout=timeout)
         if response.status_code != 200:
             raise RuntimeError(
