@@ -939,11 +939,14 @@ async def async_main(args: argparse.Namespace) -> None:
         seen.add(dedupe_key)
         target_facilities.append(facility)
 
+    if args.start > 1:
+        target_facilities = target_facilities[args.start - 1 :]
     if args.limit:
         target_facilities = target_facilities[: args.limit]
     if not target_facilities:
         raise SystemExit("期間内レビューのある施設に対応する施設情報が見つかりませんでした。")
 
+    print(f"Facility start: {args.start}")
     print(f"Facilities to query locally: {len(target_facilities)}")
     print(f"Skipped duplicate facilities: {skipped_duplicate_facilities}")
     print(f"Skipped missing facilities: {skipped_missing_facilities}")
@@ -1021,6 +1024,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rank-detail-file", default=None)
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--rank-limit", type=int, default=10)
+    parser.add_argument("--start", type=int, default=1, help="テスト/分割用: 対象施設の開始位置（1始まり）")
     parser.add_argument("--limit", type=int, default=None, help="テスト用: 対象施設数を制限")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--max-scrolls", type=int, default=14)
@@ -1036,6 +1040,8 @@ def main() -> None:
     args = parse_args()
     if args.rank_limit < 1:
         raise SystemExit("--rank-limit は1以上を指定してください。")
+    if args.start < 1:
+        raise SystemExit("--start は1以上を指定してください。")
     asyncio.run(async_main(args))
 
 
