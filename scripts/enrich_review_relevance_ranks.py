@@ -212,6 +212,11 @@ def fetch_relevance_reviews(api_token, zone_name, fid, rank_limit, timeout):
 
 def fetch_facility_rank_map(api_token, zone_name, facility, rank_limit, timeout):
     top_reviews = fetch_relevance_reviews(api_token, zone_name, facility["fid"], rank_limit, timeout)
+    if not top_reviews:
+        raise RuntimeError(
+            f"SERP APIから関連度レビューを取得できませんでした "
+            f"(fid={facility.get('fid')}, facility_id={facility.get('facility_id')})"
+        )
     ranks = {}
     for index, review in enumerate(top_reviews, start=1):
         gid = review_gid(review)
