@@ -653,22 +653,38 @@ def enrich_review_file(
             row["関連度取得ソート"] = ""
             row["関連度取得日時"] = ""
 
-    rank_by_gid: dict[str, int] = {}
+    rank_by_gid: dict[str, list[dict[str, str | int]]] = {}
     for result in rank_maps:
+        facility = result["facility"]
         for gid, rank in result["ranks"].items():
-            rank_by_gid.setdefault(gid, rank)
+            rank_by_gid.setdefault(gid, []).append({
+                "rank": rank,
+                "facility_id": facility.get("facility_id", ""),
+                "facility_gid": facility.get("facility_gid", ""),
+            })
 
     matched = 0
     for row in rows:
         gid = (row.get("レビューGID") or "").strip()
-        if gid in rank_by_gid:
-            row["関連度ランク"] = str(rank_by_gid[gid])
+        facility_id = (row.get("施設ID") or "").strip()
+        facility_gid = (row.get("施設GID") or "").strip()
+        rank_match = next(
+            (
+                item
+                for item in rank_by_gid.get(gid, [])
+                if (facility_gid and facility_gid == item.get("facility_gid"))
+                or (facility_id and facility_id == item.get("facility_id"))
+            ),
+            None,
+        )
+        if rank_match:
+            row["関連度ランク"] = str(rank_match["rank"])
             row["関連度取得ソート"] = RELEVANCE_SORT
             row["関連度取得日時"] = fetched_at
             matched += 1
 
     write_rows(output_file, rows, fieldnames)
-    return matched, len(rows), len(rank_by_gid)
+    return matched, len(rows), sum(len(items) for items in rank_by_gid.values())
 
 
 def write_summary(
