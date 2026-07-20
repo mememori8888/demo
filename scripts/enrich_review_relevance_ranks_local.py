@@ -589,6 +589,7 @@ async def fetch_rank_maps(
     force_sort_click: bool,
     on_result: Any | None = None,
     on_failure: Any | None = None,
+    stop_on_failure: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rank_maps: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -633,6 +634,8 @@ async def fetch_rank_maps(
                     if on_failure:
                         on_failure(failed_item)
                     print(f"  -> NG: {exc}", flush=True)
+                    if stop_on_failure:
+                        raise
         finally:
             await context.close()
     return rank_maps, failed
@@ -999,6 +1002,7 @@ async def async_main(args: argparse.Namespace) -> None:
         force_sort_click=args.force_sort_click,
         on_result=persist_result,
         on_failure=persist_failure,
+        stop_on_failure=not args.allow_failures,
     )
 
     matched = matched_so_far
