@@ -28,19 +28,23 @@ def extract_count(value):
 
 
 def request_variant(api_token, zone_name, label, url, fmt):
+    print(f"## {label}", flush=True)
+    print(f"url={url}", flush=True)
     headers = {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
-    response = requests.post(
-        API_ENDPOINT,
-        headers=headers,
-        json={"zone": zone_name, "url": url, "format": fmt},
-        timeout=30,
-    )
-    print(f"## {label}")
+    try:
+        response = requests.post(
+            API_ENDPOINT,
+            headers=headers,
+            json={"zone": zone_name, "url": url, "format": fmt},
+            timeout=60,
+        )
+    except Exception as exc:
+        print(f"request_error={type(exc).__name__}: {exc}", flush=True)
+        return
     print(f"status={response.status_code} content_type={response.headers.get('Content-Type')}")
-    print(f"url={url}")
     preview = response.text[:500].replace("\n", "\\n")
     print(f"preview={preview}")
     try:
