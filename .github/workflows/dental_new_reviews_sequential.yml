@@ -230,6 +230,8 @@ jobs:
           ALL_REGIONS_FILE: ${{ inputs.all_regions_file }}
           MERGE_TO_ALL_REGIONS: ${{ inputs.merge_to_all_regions }}
           INCREMENT_FILE: results/increments/dental_new_reviews_increment_${{ github.run_id }}.csv
+          DROP_EMPTY_FACILITY_ROWS: 'true'
+          MIN_MERGED_ROWS: ${{ inputs.output_file == 'results/dental_reviews.csv' && '100000' || '0' }}
         run: |
           BATCH_PATTERN='downloaded-batches/**/dental_new_reviews_batch_*.csv' python scripts/merge_review_batches.py
       - name: Save to private data repository

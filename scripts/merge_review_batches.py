@@ -38,6 +38,10 @@ def normalize_row(row):
     return {column: (row.get(column) or "").strip() for column in FIELDNAMES}
 
 
+def has_facility_key(row):
+    return bool((row.get("施設ID") or "").strip() or (row.get("施設GID") or "").strip())
+
+
 def review_key(row, fallback_index):
     gid = (row.get("レビューGID") or "").strip()
     if gid:
@@ -73,11 +77,18 @@ def next_review_id(rows):
 def merge_batches(output_file, batch_pattern):
     output = Path(output_file)
     output.parent.mkdir(parents=True, exist_ok=True)
+    drop_empty_facility_rows = os.environ.get("DROP_EMPTY_FACILITY_ROWS", "false").lower() == "true"
+    min_merged_rows = int(os.environ.get("MIN_MERGED_ROWS", "0") or "0")
+    dropped_existing = 0
+    dropped_incoming = 0
 
     merged = {}
     order = []
     for index, row in enumerate(read_rows(output), start=1):
         normalized = normalize_row(row)
+        if drop_empty_facility_rows and not has_facility_key(normalized):
+            dropped_existing += 1
+            continue
         key = review_key(normalized, index)
         if key not in merged:
             order.append(key)
@@ -88,6 +99,9 @@ def merge_batches(output_file, batch_pattern):
     for filename in sorted(glob.glob(batch_pattern, recursive=True)):
         for row in read_rows(filename):
             normalized = normalize_row(row)
+            if drop_empty_facility_rows and not has_facility_key(normalized):
+                dropped_incoming += 1
+                continue
             key = review_key(normalized, len(order) + 1)
             if key in merged:
                 merged[key] = merge_row(merged[key], normalized)
@@ -99,10 +113,14 @@ def merge_batches(output_file, batch_pattern):
             new_keys.append(key)
 
     rows = [merged[key] for key in order]
+    if min_merged_rows and len(rows) < min_merged_rows:
+        raise RuntimeError(f"Merged rows {len(rows)} is below MIN_MERGED_ROWS={min_merged_rows}")
     with output.open("w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
+    if drop_empty_facility_rows:
+        print(f"Dropped rows without facility key: existing={dropped_existing}, incoming={dropped_incoming}")
 
     # 既存ファイルに無かった新規追加分のみ（増分）
     new_rows = [merged[key] for key in new_keys]
