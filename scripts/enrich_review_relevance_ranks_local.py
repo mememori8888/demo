@@ -587,6 +587,8 @@ async def fetch_rank_maps(
     headless: bool,
     slow_mo: int,
     force_sort_click: bool,
+    on_result: Any | None = None,
+    on_failure: Any | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rank_maps: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -622,9 +624,14 @@ async def fetch_rank_maps(
                         "request_count": 1,
                         "top_count": len(gids),
                     })
+                    if on_result:
+                        on_result(rank_maps[-1])
                     print(f"  -> top={len(gids)}", flush=True)
                 except Exception as exc:
-                    failed.append({"facility": facility, "error": str(exc)})
+                    failed_item = {"facility": facility, "error": str(exc)}
+                    failed.append(failed_item)
+                    if on_failure:
+                        on_failure(failed_item)
                     print(f"  -> NG: {exc}", flush=True)
         finally:
             await context.close()
@@ -690,6 +697,71 @@ def enrich_review_file(
 
     write_rows(output_file, rows, fieldnames)
     return matched, len(rows), sum(len(items) for items in rank_by_gid.values())
+
+
+def initialize_output_file(review_file: str | Path, output_file: str | Path) -> tuple[list[dict[str, str]], list[str]]:
+    fieldnames = output_fieldnames(read_fieldnames(review_file))
+    rows = read_rows(review_file)
+    for row in rows:
+        for column in FIELDNAMES:
+            row.setdefault(column, "")
+    write_rows(output_file, rows, fieldnames)
+    return rows, fieldnames
+
+
+def apply_rank_result_to_rows(
+    rows: list[dict[str, str]],
+    output_file: str | Path,
+    fieldnames: list[str],
+    facility: dict[str, str],
+    ranks: dict[str, int],
+    fetched_at: str,
+) -> int:
+    facility_id = (facility.get("facility_id") or "").strip()
+    facility_gid = (facility.get("facility_gid") or "").strip()
+    matched = 0
+
+    for row in rows:
+        row_facility_id = (row.get("施設ID") or "").strip()
+        row_facility_gid = (row.get("施設GID") or "").strip()
+        same_facility = (facility_gid and row_facility_gid == facility_gid) or (facility_id and row_facility_id == facility_id)
+        if not same_facility:
+            continue
+        row["関連度ランク"] = ""
+        row["関連度取得ソート"] = ""
+        row["関連度取得日時"] = ""
+
+    for row in rows:
+        row_facility_id = (row.get("施設ID") or "").strip()
+        row_facility_gid = (row.get("施設GID") or "").strip()
+        same_facility = (facility_gid and row_facility_gid == facility_gid) or (facility_id and row_facility_id == facility_id)
+        if not same_facility:
+            continue
+        gid = (row.get("レビューGID") or "").strip()
+        if gid in ranks:
+            row["関連度ランク"] = str(ranks[gid])
+            row["関連度取得ソート"] = RELEVANCE_SORT
+            row["関連度取得日時"] = fetched_at
+            matched += 1
+
+    write_rows(output_file, rows, fieldnames)
+    return matched
+
+
+def clear_relevance_for_facilities(rows: list[dict[str, str]], facilities: list[dict[str, str]]) -> None:
+    targeted_gid_or_id: set[str] = set()
+    for facility in facilities:
+        if facility.get("facility_gid"):
+            targeted_gid_or_id.add(facility["facility_gid"])
+        if facility.get("facility_id"):
+            targeted_gid_or_id.add(facility["facility_id"])
+
+    for row in rows:
+        facility_key = (row.get("施設GID") or row.get("施設ID") or "").strip()
+        if facility_key in targeted_gid_or_id:
+            row["関連度ランク"] = ""
+            row["関連度取得ソート"] = ""
+            row["関連度取得日時"] = ""
 
 
 def write_summary(
@@ -879,6 +951,40 @@ async def async_main(args: argparse.Namespace) -> None:
     print(f"Rank limit: {args.rank_limit}, sort: {RELEVANCE_SORT}")
     print(f"Chromium profile: {args.profile_dir.resolve()}")
 
+    output_file = args.output_file or args.review_file
+    output_rows, output_fieldnames = initialize_output_file(args.review_file, output_file)
+    clear_relevance_for_facilities(output_rows, target_facilities)
+    write_rows(output_file, output_rows, output_fieldnames)
+    fetched_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    processed_rank_maps: list[dict[str, Any]] = []
+    failed_items: list[dict[str, Any]] = []
+    matched_so_far = 0
+    rank_candidates_so_far = 0
+
+    def persist_result(result: dict[str, Any]) -> None:
+        nonlocal matched_so_far, rank_candidates_so_far
+        processed_rank_maps.append(result)
+        rank_candidates_so_far += len(result["ranks"])
+        matched = apply_rank_result_to_rows(
+            output_rows,
+            output_file,
+            output_fieldnames,
+            result["facility"],
+            result["ranks"],
+            fetched_at,
+        )
+        matched_so_far += matched
+        write_summary(args.summary_file, processed_rank_maps, target_review_gids, matched_so_far, len(output_rows), failed_items)
+        detail_file = args.rank_detail_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_details.csv"))
+        write_rank_detail(detail_file, processed_rank_maps, output_file)
+        print(f"  -> saved: matched={matched}, matched_total={matched_so_far}", flush=True)
+
+    def persist_failure(item: dict[str, Any]) -> None:
+        failed_items.append(item)
+        write_summary(args.summary_file, processed_rank_maps, target_review_gids, matched_so_far, len(output_rows), failed_items)
+        detail_file = args.rank_detail_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_details.csv"))
+        write_rank_detail(detail_file, processed_rank_maps, output_file)
+
     rank_maps, failed = await fetch_rank_maps(
         facilities=target_facilities,
         profile_dir=args.profile_dir,
@@ -888,21 +994,18 @@ async def async_main(args: argparse.Namespace) -> None:
         headless=args.headless,
         slow_mo=args.slow_mo,
         force_sort_click=args.force_sort_click,
+        on_result=persist_result,
+        on_failure=persist_failure,
     )
 
-    fetched_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    matched, total_rows, rank_candidates = enrich_review_file(
-        args.review_file,
-        args.output_file or args.review_file,
-        target_facilities,
-        rank_maps,
-        fetched_at,
-    )
+    matched = matched_so_far
+    total_rows = len(output_rows)
+    rank_candidates = rank_candidates_so_far
     print(f"Fetched rank candidates: {rank_candidates}")
     print("Only relevance columns were updated.")
     write_summary(args.summary_file, rank_maps, target_review_gids, matched, total_rows, failed)
     detail_file = args.rank_detail_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_details.csv"))
-    write_rank_detail(detail_file, rank_maps, args.review_file)
+    write_rank_detail(detail_file, rank_maps, output_file)
 
     if failed and not args.allow_failures:
         raise SystemExit(f"ローカル関連度取得に失敗した施設があります: {len(failed)}件")
