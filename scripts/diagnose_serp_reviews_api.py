@@ -36,7 +36,7 @@ def request_variant(api_token, zone_name, label, url, fmt):
         API_ENDPOINT,
         headers=headers,
         json={"zone": zone_name, "url": url, "format": fmt},
-        timeout=120,
+        timeout=30,
     )
     print(f"## {label}")
     print(f"status={response.status_code} content_type={response.headers.get('Content-Type')}")
@@ -72,8 +72,6 @@ def main():
             ("raw_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("raw_brd_json_1_encoded", f"https://www.google.com/reviews?fid={encoded}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("json_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "json"),
-            ("raw_no_brd", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore", "raw"),
-            ("raw_brd_json_html", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=html", "raw"),
         ]
         for label, url, fmt in variants:
             request_variant(args.api_token, args.zone_name, f"{prefix}:{label}", url, fmt)
