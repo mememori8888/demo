@@ -591,14 +591,19 @@ async def fetch_rank_maps(
     rank_maps: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir.resolve()),
-            headless=headless,
-            slow_mo=slow_mo,
-            locale="ja",
-            extra_http_headers={"Accept-Language": "ja,en;q=0.7"},
-            viewport={"width": 1366, "height": 900},
-        )
+        launch_options = {
+            "user_data_dir": str(profile_dir.resolve()),
+            "headless": headless,
+            "slow_mo": slow_mo,
+            "locale": "ja",
+            "extra_http_headers": {"Accept-Language": "ja,en;q=0.7"},
+            "viewport": {"width": 1366, "height": 900},
+        }
+        try:
+            context = await p.chromium.launch_persistent_context(channel="chrome", **launch_options)
+        except Exception as chrome_exc:
+            print(f"Chrome channel launch failed, fallback to bundled Chromium: {chrome_exc}", flush=True)
+            context = await p.chromium.launch_persistent_context(**launch_options)
         page = await context.new_page()
         try:
             for index, facility in enumerate(facilities, start=1):
