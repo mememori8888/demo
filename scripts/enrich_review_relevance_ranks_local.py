@@ -500,12 +500,50 @@ async def extract_review_card_details(page: Page) -> dict[str, dict[str, str]]:
     cards = await page.evaluate(
         """
         () => {
+            const parseRating = (card) => {
+                const candidates = [
+                    ...card.querySelectorAll("[aria-label]"),
+                    card,
+                ];
+                for (const el of candidates) {
+                    const label = el.getAttribute("aria-label") || "";
+                    const match = label.match(/([0-5](?:[.,]\\d)?)\\s*(?:つ星|星|stars?|スター)/i);
+                    if (match) return match[1].replace(",", ".");
+                }
+                return "";
+            };
+            const parseDate = (card) => {
+                const dateSelectors = [
+                    ".rsqaWe",
+                    "[class*='rsqaWe']",
+                    "[aria-label*='前']",
+                    "[aria-label*='ago']",
+                    "[aria-label*='編集']",
+                    "[aria-label*='Edited']",
+                ];
+                for (const selector of dateSelectors) {
+                    for (const el of card.querySelectorAll(selector)) {
+                        const text = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim();
+                        if (/\\d+\\s*(分|時間|日|週間|か月|年)前|ago|最終編集|Edited|\\d{4}[\\/年-]\\d{1,2}/i.test(text)) {
+                            return text;
+                        }
+                    }
+                }
+                for (const line of (card.innerText || "").split("\\n").map((line) => line.trim())) {
+                    if (/\\d+\\s*(分|時間|日|週間|か月|年)前|ago|最終編集|Edited|\\d{4}[\\/年-]\\d{1,2}/i.test(line)) {
+                        return line;
+                    }
+                }
+                return "";
+            };
             const details = {};
             for (const card of document.querySelectorAll(".jftiEf[data-review-id], [data-review-id]")) {
                 const gid = card.getAttribute("data-review-id") || "";
                 if (!gid || details[gid]) continue;
                 details[gid] = {
                     reviewer: card.getAttribute("aria-label") || "",
+                    rating: parseRating(card),
+                    date: parseDate(card),
                     text: (card.innerText || "").trim(),
                 };
             }
@@ -516,6 +554,8 @@ async def extract_review_card_details(page: Page) -> dict[str, dict[str, str]]:
     return {
         gid: {
             "reviewer": str(detail.get("reviewer") or "").strip(),
+            "rating": str(detail.get("rating") or "").strip(),
+            "date": str(detail.get("date") or "").strip(),
             "text": str(detail.get("text") or "").strip(),
         }
         for gid, detail in cards.items()
@@ -856,6 +896,8 @@ def write_rank_detail(path: str | Path, rank_maps: list[dict[str, Any]], review_
                 "関連度ランク",
                 "取得レビューGID",
                 "取得レビュワー名",
+                "取得レビュワー評価",
+                "取得レビュー日時",
                 "取得カード本文",
                 "取得カード本文あり",
                 "一致レビュー数",
@@ -883,6 +925,8 @@ def write_rank_detail(path: str | Path, rank_maps: list[dict[str, Any]], review_
                             "関連度ランク": rank,
                             "取得レビューGID": gid,
                             "取得レビュワー名": current.get("reviewer", ""),
+                            "取得レビュワー評価": current.get("rating", ""),
+                            "取得レビュー日時": current.get("date", ""),
                             "取得カード本文": current_text,
                             "取得カード本文あり": "1" if has_visible_review_body(current_text) else "0",
                             "一致レビュー数": len(matches),
@@ -900,6 +944,8 @@ def write_rank_detail(path: str | Path, rank_maps: list[dict[str, Any]], review_
                         "関連度ランク": rank,
                         "取得レビューGID": gid,
                         "取得レビュワー名": current.get("reviewer", ""),
+                        "取得レビュワー評価": current.get("rating", ""),
+                        "取得レビュー日時": current.get("date", ""),
                         "取得カード本文": current_text,
                         "取得カード本文あり": "1" if has_visible_review_body(current_text) else "0",
                         "一致レビュー数": 0,
@@ -936,9 +982,9 @@ def write_unmatched_reviews(path: str | Path, rank_maps: list[dict[str, Any]], r
                     "レビューID": "",
                     "施設ID": facility.get("facility_id", ""),
                     "施設GID": facility.get("facility_gid", ""),
-                    "レビュワー評価": "",
+                    "レビュワー評価": current.get("rating", ""),
                     "レビュワー名": current.get("reviewer", ""),
-                    "レビュー日時": "",
+                    "レビュー日時": current.get("date", ""),
                     "レビュー本文": current.get("text", ""),
                     "オーナー返信": "",
                     "レビュー表示順位": str(rank),
