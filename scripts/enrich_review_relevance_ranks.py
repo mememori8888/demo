@@ -219,6 +219,17 @@ def fetch_facility_rank_map(api_token, zone_name, facility, rank_limit, timeout)
     }
 
 
+def row_matches_facility(row, facility):
+    row_facility_id = (row.get("施設ID") or "").strip()
+    row_facility_gid = (row.get("施設GID") or "").strip()
+    facility_id = (facility.get("facility_id") or "").strip()
+    facility_gid = (facility.get("facility_gid") or "").strip()
+    return bool(
+        (facility_gid and row_facility_gid == facility_gid)
+        or (facility_id and row_facility_id == facility_id)
+    )
+
+
 def enrich_review_file(review_file, facilities, target_facility_keys, rank_maps, fetched_at):
     rows = read_rows(review_file)
     for row in rows:
@@ -240,18 +251,21 @@ def enrich_review_file(review_file, facilities, target_facility_keys, rank_maps,
             row["関連度取得日時"] = ""
 
     matched = 0
-    rank_by_gid = {}
+    ranks_by_facility = []
     for result in rank_maps:
-        for gid, rank in result["ranks"].items():
-            rank_by_gid[gid] = rank
+        ranks_by_facility.append((result["facility"], result["ranks"]))
 
     for row in rows:
         gid = (row.get("レビューGID") or "").strip()
-        if gid in rank_by_gid:
-            row["関連度ランク"] = str(rank_by_gid[gid])
-            row["関連度取得ソート"] = RELEVANCE_SORT
-            row["関連度取得日時"] = fetched_at
-            matched += 1
+        if not gid:
+            continue
+        for facility, ranks in ranks_by_facility:
+            if gid in ranks and row_matches_facility(row, facility):
+                row["関連度ランク"] = str(ranks[gid])
+                row["関連度取得ソート"] = RELEVANCE_SORT
+                row["関連度取得日時"] = fetched_at
+                matched += 1
+                break
 
     write_rows(review_file, rows)
     return matched, len(rows)
