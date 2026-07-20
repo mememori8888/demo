@@ -912,6 +912,46 @@ def write_rank_detail(path: str | Path, rank_maps: list[dict[str, Any]], review_
     print(f"Rank detail: {path}")
 
 
+def write_unmatched_reviews(path: str | Path, rank_maps: list[dict[str, Any]], review_file: str | Path) -> None:
+    rows = read_rows(review_file)
+    known_gids = {
+        (row.get("レビューGID") or "").strip()
+        for row in rows
+        if (row.get("レビューGID") or "").strip()
+    }
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
+        writer.writeheader()
+        for result in rank_maps:
+            facility = result["facility"]
+            details = result.get("details") or {}
+            for gid, rank in sorted(result["ranks"].items(), key=lambda item: item[1]):
+                if gid in known_gids:
+                    continue
+                current = details.get(gid, {})
+                writer.writerow({
+                    "レビューID": "",
+                    "施設ID": facility.get("facility_id", ""),
+                    "施設GID": facility.get("facility_gid", ""),
+                    "レビュワー評価": "",
+                    "レビュワー名": current.get("reviewer", ""),
+                    "レビュー日時": "",
+                    "レビュー本文": current.get("text", ""),
+                    "オーナー返信": "",
+                    "レビュー表示順位": str(rank),
+                    "レビュー取得ソート": RELEVANCE_SORT,
+                    "関連度ランク": str(rank),
+                    "関連度取得ソート": RELEVANCE_SORT,
+                    "関連度取得日時": "",
+                    "レビュー要約": "",
+                    "レビューGID": gid,
+                })
+    print(f"Unmatched reviews: {path}")
+
+
 async def async_main(args: argparse.Namespace) -> None:
     target_patterns = args.recent_review_glob or [args.review_file]
     target_keys, target_review_gids, target_files = load_recent_review_facilities(target_patterns)
@@ -983,6 +1023,8 @@ async def async_main(args: argparse.Namespace) -> None:
         write_summary(args.summary_file, processed_rank_maps, target_review_gids, matched_so_far, len(output_rows), failed_items)
         detail_file = args.rank_detail_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_details.csv"))
         write_rank_detail(detail_file, processed_rank_maps, output_file)
+        unmatched_file = args.unmatched_review_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_unmatched_reviews.csv"))
+        write_unmatched_reviews(unmatched_file, processed_rank_maps, output_file)
         print(f"  -> saved: matched={matched}, matched_total={matched_so_far}", flush=True)
 
     def persist_failure(item: dict[str, Any]) -> None:
@@ -990,6 +1032,8 @@ async def async_main(args: argparse.Namespace) -> None:
         write_summary(args.summary_file, processed_rank_maps, target_review_gids, matched_so_far, len(output_rows), failed_items)
         detail_file = args.rank_detail_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_details.csv"))
         write_rank_detail(detail_file, processed_rank_maps, output_file)
+        unmatched_file = args.unmatched_review_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_unmatched_reviews.csv"))
+        write_unmatched_reviews(unmatched_file, processed_rank_maps, output_file)
 
     rank_maps, failed = await fetch_rank_maps(
         facilities=target_facilities,
@@ -1013,6 +1057,8 @@ async def async_main(args: argparse.Namespace) -> None:
     write_summary(args.summary_file, rank_maps, target_review_gids, matched, total_rows, failed)
     detail_file = args.rank_detail_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_details.csv"))
     write_rank_detail(detail_file, rank_maps, output_file)
+    unmatched_file = args.unmatched_review_file or str(Path(args.summary_file).with_name(Path(args.summary_file).stem + "_unmatched_reviews.csv"))
+    write_unmatched_reviews(unmatched_file, rank_maps, output_file)
 
     if failed and not args.allow_failures:
         raise SystemExit(f"ローカル関連度取得に失敗した施設があります: {len(failed)}件")
@@ -1026,6 +1072,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recent-review-glob", action="append", default=None, help="省略時は --review-file を対象レビューとして使います")
     parser.add_argument("--summary-file", default="results/relevance_rank_summary_local.csv")
     parser.add_argument("--rank-detail-file", default=None)
+    parser.add_argument("--unmatched-review-file", default=None)
     parser.add_argument("--profile-dir", type=Path, required=True)
     parser.add_argument("--rank-limit", type=int, default=10)
     parser.add_argument("--start", type=int, default=1, help="テスト/分割用: 対象施設の開始位置（1始まり）")
