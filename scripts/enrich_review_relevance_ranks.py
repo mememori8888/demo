@@ -140,10 +140,18 @@ def parse_response_body(response_json):
 
 
 def extract_reviews(response_data):
+    review_lists = []
     if isinstance(response_data, dict):
-        reviews = response_data.get("reviews") or response_data.get("review_results") or []
-        return reviews if isinstance(reviews, list) else []
-    return []
+        for key in ("reviews", "review_results", "user_reviews"):
+            reviews = response_data.get(key)
+            if isinstance(reviews, list):
+                review_lists.append(reviews)
+        for value in response_data.values():
+            review_lists.extend(extract_reviews(value))
+    elif isinstance(response_data, list):
+        for value in response_data:
+            review_lists.extend(extract_reviews(value))
+    return review_lists[0] if review_lists else []
 
 
 def review_gid(review):

@@ -11,20 +11,34 @@ import requests
 API_ENDPOINT = "https://api.brightdata.com/request"
 
 
-def extract_count(value):
+def find_review_lists(value):
+    review_lists = []
     if isinstance(value, dict):
-        for key in ("reviews", "review_results"):
+        for key in ("reviews", "review_results", "user_reviews"):
             items = value.get(key)
             if isinstance(items, list):
-                return len(items), sorted(value.keys())
+                review_lists.append(items)
         body = value.get("body")
         if isinstance(body, str):
             try:
-                return extract_count(json.loads(body))
+                review_lists.extend(find_review_lists(json.loads(body)))
             except ValueError:
-                return 0, sorted(value.keys())
-        return 0, sorted(value.keys())
-    return 0, []
+                pass
+        for item in value.values():
+            if item is body:
+                continue
+            review_lists.extend(find_review_lists(item))
+    elif isinstance(value, list):
+        for item in value:
+            review_lists.extend(find_review_lists(item))
+    return review_lists
+
+
+def extract_count(value):
+    review_lists = find_review_lists(value)
+    count = len(review_lists[0]) if review_lists else 0
+    keys = sorted(value.keys()) if isinstance(value, dict) else []
+    return count, keys
 
 
 def request_variant(api_token, zone_name, label, url, fmt, extra_headers=None):
@@ -81,6 +95,8 @@ def main():
             ("raw_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("raw_brd_json_1_encoded", f"https://www.google.com/reviews?fid={encoded}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("json_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "json"),
+            ("maps_place_data_raw_brd_json_1", f"https://www.google.com/maps/place/data=!3m1!4b1!4m2!3m1!1s{fid}?brd_json=1", "raw"),
+            ("maps_place_data_json_brd_json_1", f"https://www.google.com/maps/place/data=!3m1!4b1!4m2!3m1!1s{fid}?brd_json=1", "json"),
         ]
         for label, url, fmt in variants:
             request_variant(args.api_token, args.zone_name, f"{prefix}:{label}", url, fmt)
