@@ -174,9 +174,15 @@ def fetch_relevance_reviews(api_token, zone_name, fid, rank_limit, timeout):
         start = page * REVIEWS_PER_PAGE
         url = (
             f"https://www.google.com/reviews?fid={fid}"
-            f"&start={start}&sort={RELEVANCE_SORT}&hl=ja&brd_json=1"
+            f"&start={start}&sort={RELEVANCE_SORT}&hl=ja"
         )
-        payload = {"zone": zone_name, "url": url, "format": "json", "data_format": "parsed"}
+        payload = {
+            "zone": zone_name,
+            "url": url,
+            "format": "raw",
+            "method": "GET",
+            "direct": True,
+        }
         response = requests.post(API_ENDPOINT, headers=headers, json=payload, timeout=timeout)
         if response.status_code != 200:
             raise RuntimeError(
