@@ -74,6 +74,8 @@ def main():
     for prefix, fid in fids:
         encoded = quote(fid, safe="")
         variants = [
+            ("json_no_brd", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore", "json"),
+            ("json_no_brd_encoded", f"https://www.google.com/reviews?fid={encoded}&hl=ja&sort=qualityScore", "json"),
             ("raw_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("raw_brd_json_1_encoded", f"https://www.google.com/reviews?fid={encoded}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("json_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "json"),
