@@ -41,7 +41,7 @@ def extract_count(value):
     return count, keys
 
 
-def request_variant(api_token, zone_name, label, url, fmt, extra_headers=None):
+def request_variant(api_token, zone_name, label, url, fmt, data_format=None, extra_headers=None):
     print(f"## {label}", flush=True)
     print(f"url={url}", flush=True)
     headers = {
@@ -51,10 +51,13 @@ def request_variant(api_token, zone_name, label, url, fmt, extra_headers=None):
     if extra_headers:
         headers.update(extra_headers)
     try:
+        payload = {"zone": zone_name, "url": url, "format": fmt}
+        if data_format:
+            payload["data_format"] = data_format
         response = requests.post(
             API_ENDPOINT,
             headers=headers,
-            json={"zone": zone_name, "url": url, "format": fmt},
+            json=payload,
             timeout=60,
         )
     except Exception as exc:
@@ -87,19 +90,32 @@ def main():
         ("target", args.fid),
         ("official_sample", "0x89c259a9b3117469:0xd134e199a405a163"),
     ]
+    request_variant(
+        args.api_token,
+        args.zone_name,
+        "official_search_sample_json_parsed",
+        "https://www.google.com/search?q=pizza",
+        "json",
+        "parsed",
+    )
     for prefix, fid in fids:
         encoded = quote(fid, safe="")
         variants = [
             ("json_no_brd", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore", "json"),
+            ("json_parsed_no_brd", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore", "json", "parsed"),
             ("json_no_brd_encoded", f"https://www.google.com/reviews?fid={encoded}&hl=ja&sort=qualityScore", "json"),
             ("raw_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("raw_brd_json_1_encoded", f"https://www.google.com/reviews?fid={encoded}&hl=ja&sort=qualityScore&brd_json=1", "raw"),
             ("json_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "json"),
+            ("json_parsed_brd_json_1", f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore&brd_json=1", "json", "parsed"),
             ("maps_place_data_raw_brd_json_1", f"https://www.google.com/maps/place/data=!3m1!4b1!4m2!3m1!1s{fid}?brd_json=1", "raw"),
             ("maps_place_data_json_brd_json_1", f"https://www.google.com/maps/place/data=!3m1!4b1!4m2!3m1!1s{fid}?brd_json=1", "json"),
+            ("maps_place_data_json_parsed_brd_json_1", f"https://www.google.com/maps/place/data=!3m1!4b1!4m2!3m1!1s{fid}?brd_json=1", "json", "parsed"),
         ]
-        for label, url, fmt in variants:
-            request_variant(args.api_token, args.zone_name, f"{prefix}:{label}", url, fmt)
+        for variant in variants:
+            label, url, fmt = variant[:3]
+            data_format = variant[3] if len(variant) > 3 else None
+            request_variant(args.api_token, args.zone_name, f"{prefix}:{label}", url, fmt, data_format)
         request_variant(
             args.api_token,
             args.zone_name,
@@ -124,9 +140,12 @@ def main():
             ("maps_url_raw", maps_url, "raw"),
             ("maps_url_raw_brd_json_1", f"{maps_url}{separator}brd_json=1", "raw"),
             ("maps_url_json_brd_json_1", f"{maps_url}{separator}brd_json=1", "json"),
+            ("maps_url_json_parsed_brd_json_1", f"{maps_url}{separator}brd_json=1", "json", "parsed"),
         ]
-        for label, url, fmt in variants:
-            request_variant(args.api_token, args.zone_name, label, url, fmt)
+        for variant in variants:
+            label, url, fmt = variant[:3]
+            data_format = variant[3] if len(variant) > 3 else None
+            request_variant(args.api_token, args.zone_name, label, url, fmt, data_format)
 
 
 if __name__ == "__main__":
