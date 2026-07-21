@@ -60,6 +60,7 @@ def request_variant(api_token, zone_name, label, url, fmt):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fid", required=True)
+    parser.add_argument("--maps-url", default="")
     parser.add_argument("--zone-name", default=os.getenv("BRIGHTDATA_ZONE_NAME") or "serp_api2")
     parser.add_argument("--api-token", default=os.getenv("BRIGHTDATA_API_TOKEN"))
     args = parser.parse_args()
@@ -79,6 +80,17 @@ def main():
         ]
         for label, url, fmt in variants:
             request_variant(args.api_token, args.zone_name, f"{prefix}:{label}", url, fmt)
+
+    if args.maps_url:
+        maps_url = args.maps_url
+        separator = "&" if "?" in maps_url else "?"
+        variants = [
+            ("maps_url_raw", maps_url, "raw"),
+            ("maps_url_raw_brd_json_1", f"{maps_url}{separator}brd_json=1", "raw"),
+            ("maps_url_json_brd_json_1", f"{maps_url}{separator}brd_json=1", "json"),
+        ]
+        for label, url, fmt in variants:
+            request_variant(args.api_token, args.zone_name, label, url, fmt)
 
 
 if __name__ == "__main__":

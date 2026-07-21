@@ -11,6 +11,10 @@ on:
         description: "BrightData SERP API zone name"
         required: false
         default: "serp_api2"
+      maps_url:
+        description: "Google Maps place URL to test"
+        required: false
+        default: "https://www.google.com/maps/place/%E3%81%95%E3%81%84%E3%82%8F%E3%81%84%E3%83%87%E3%83%B3%E3%82%BF%E3%83%AB%E3%82%AF%E3%83%AA%E3%83%8B%E3%83%83%E3%82%AFmoyuk+SAPPORO/@43.0575687,141.3505936,17z/data=!3m1!4b1!4m6!3m5!1s0x5f0b293393c34929:0x449b90dc73e7aad8!8m2!3d43.0575648!4d141.3531685!16s%2Fg%2F11kq5v9xt_?entry=ttu&g_ep=EgoyMDI2MDEyNS4wIKXMDSoASAFQAw%3D%3D"
 
 permissions:
   contents: read
@@ -33,4 +37,5 @@ jobs:
         run: |
           python scripts/diagnose_serp_reviews_api.py \
             --fid "${{ inputs.fid }}" \
-            --zone-name "${{ inputs.zone_name }}"
+            --zone-name "${{ inputs.zone_name }}" \
+            --maps-url "${{ inputs.maps_url }}"
