@@ -27,13 +27,15 @@ def extract_count(value):
     return 0, []
 
 
-def request_variant(api_token, zone_name, label, url, fmt):
+def request_variant(api_token, zone_name, label, url, fmt, extra_headers=None):
     print(f"## {label}", flush=True)
     print(f"url={url}", flush=True)
     headers = {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
+    if extra_headers:
+        headers.update(extra_headers)
     try:
         response = requests.post(
             API_ENDPOINT,
@@ -82,6 +84,22 @@ def main():
         ]
         for label, url, fmt in variants:
             request_variant(args.api_token, args.zone_name, f"{prefix}:{label}", url, fmt)
+        request_variant(
+            args.api_token,
+            args.zone_name,
+            f"{prefix}:raw_header_json",
+            f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore",
+            "raw",
+            {"x-unblock-data-format": "json"},
+        )
+        request_variant(
+            args.api_token,
+            args.zone_name,
+            f"{prefix}:json_header_json",
+            f"https://www.google.com/reviews?fid={fid}&hl=ja&sort=qualityScore",
+            "json",
+            {"x-unblock-data-format": "json"},
+        )
 
     if args.maps_url:
         maps_url = args.maps_url
